@@ -43,6 +43,25 @@ a {
     background: var(--sidebar);
     color: #ffffff;
     box-shadow: 8px 0 24px rgba(9, 20, 17, 0.08);
+    transition: width 180ms ease, padding 180ms ease;
+}
+
+.sidebar-toggle {
+    position: absolute;
+    top: 28px;
+    right: -14px;
+    display: grid;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    place-items: center;
+    border: 1px solid #36534c;
+    border-radius: 50%;
+    background: var(--sidebar);
+    color: #fff;
+    cursor: pointer;
+    font-size: 20px;
+    line-height: 1;
 }
 
 .brand {
@@ -132,6 +151,246 @@ a {
 .main-content {
     margin-left: 240px;
     padding: 36px 40px 48px;
+    transition: margin-left 180ms ease;
+}
+
+body.sidebar-collapsed .sidebar,
+html.sidebar-collapsed-preload .sidebar {
+    width: 72px;
+    padding-inline: 10px;
+}
+
+body.sidebar-collapsed .main-content,
+html.sidebar-collapsed-preload .main-content {
+    margin-left: 72px;
+}
+
+body.sidebar-collapsed .brand,
+html.sidebar-collapsed-preload .brand {
+    justify-content: center;
+    padding: 0;
+}
+
+body.sidebar-collapsed .brand > span:last-child,
+html.sidebar-collapsed-preload .brand > span:last-child,
+body.sidebar-collapsed .nav-label,
+html.sidebar-collapsed-preload .nav-label,
+body.sidebar-collapsed .nav-text,
+html.sidebar-collapsed-preload .nav-text,
+body.sidebar-collapsed .account-copy,
+html.sidebar-collapsed-preload .account-copy,
+body.sidebar-collapsed .sidebar-account form,
+html.sidebar-collapsed-preload .sidebar-account form {
+    display: none;
+}
+
+body.sidebar-collapsed .sidebar nav a,
+html.sidebar-collapsed-preload .sidebar nav a {
+    justify-content: center;
+    padding-inline: 0;
+}
+
+body.sidebar-collapsed .sidebar nav a:hover,
+html.sidebar-collapsed-preload .sidebar nav a:hover {
+    transform: none;
+}
+
+body.sidebar-collapsed .sidebar-account,
+html.sidebar-collapsed-preload .sidebar-account {
+    display: flex;
+    justify-content: center;
+}
+
+body.sidebar-collapsed .sidebar-toggle span,
+html.sidebar-collapsed-preload .sidebar-toggle span {
+    transform: rotate(180deg);
+}
+
+.dashboard-size-table-wrap {
+    max-height: 430px;
+    overflow: auto;
+}
+
+.dashboard-size-section {
+    margin-bottom: 22px;
+}
+
+.size-month-filter {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.size-month-filter label {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.size-month-filter select {
+    min-height: 34px;
+    padding: 5px 30px 5px 10px;
+    border: 1px solid #d0d5dd;
+    border-radius: 8px;
+    background: #fff;
+    font: inherit;
+    font-size: 12px;
+}
+
+.size-visual {
+    padding: 14px 18px 20px;
+}
+
+.size-platform-tabs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    margin-bottom: 18px;
+    padding-bottom: 2px;
+}
+
+.size-platform-tabs button {
+    padding: 7px 13px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: #fff;
+    color: var(--muted);
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 750;
+    white-space: nowrap;
+}
+
+.size-platform-tabs button[aria-selected="true"] {
+    border-color: var(--primary);
+    background: var(--primary);
+    color: #fff;
+}
+
+.size-chart-panel {
+    display: grid;
+    grid-template-columns: 150px minmax(0, 1fr);
+    gap: 26px;
+    align-items: center;
+    min-height: 210px;
+    padding: 22px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fbfcfc;
+}
+
+.size-chart-panel[hidden] {
+    display: none;
+}
+
+.size-chart-summary {
+    display: grid;
+    align-content: center;
+    min-height: 145px;
+    padding-right: 22px;
+    border-right: 1px solid var(--line);
+}
+
+.size-chart-summary span,
+.size-chart-summary small {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.size-chart-summary strong {
+    margin: 6px 0 2px;
+    color: var(--primary-dark);
+    font-size: 30px;
+}
+
+.size-product-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(120px, 1fr));
+    gap: 12px;
+}
+
+.size-product-card {
+    min-width: 0;
+    padding: 14px 15px 16px;
+    border: 1px solid #dfe7e4;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 3px 10px rgba(16, 24, 40, 0.035);
+}
+
+.size-product-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: #7b8d87;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+}
+
+.size-product-meta small {
+    padding: 3px 6px;
+    border-radius: 999px;
+    background: #eef4f2;
+    color: #547168;
+    font-size: 10px;
+    letter-spacing: 0;
+}
+
+.size-product-name {
+    display: block;
+    overflow: hidden;
+    margin: 16px 0 14px;
+    color: #173f36;
+    font-size: 24px;
+    line-height: 1.1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.size-product-quantity {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+}
+
+.size-product-quantity strong {
+    color: var(--text);
+    font-size: 22px;
+}
+
+.size-product-quantity span {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.size-product-card.is-negative {
+    border-color: #f3c6c2;
+    background: #fff8f7;
+}
+
+.size-product-card.is-negative .size-product-name,
+.size-product-card.is-negative .size-product-quantity strong {
+    color: #b42318;
+}
+
+@media (max-width: 900px) {
+    .size-chart-panel {
+        grid-template-columns: 1fr;
+    }
+
+    .size-chart-summary {
+        min-height: 0;
+        padding: 0 0 14px;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+    }
+
+    .size-product-grid {
+        grid-template-columns: repeat(2, minmax(120px, 1fr));
+    }
 }
 
 .page-header {
@@ -989,6 +1248,26 @@ body.modal-open {
 .wide-table {
     max-height: calc(100vh - 245px);
     overflow: auto;
+}
+
+.sales-raw-table {
+    min-width: 2050px;
+}
+
+.sales-raw-table th,
+.sales-raw-table td {
+    padding: 9px 8px;
+    white-space: nowrap;
+}
+
+.sales-raw-table th:nth-child(3),
+.sales-raw-table td:nth-child(3) {
+    width: 62px;
+}
+
+.sales-raw-table th:nth-child(7),
+.sales-raw-table td:nth-child(7) {
+    width: 58px;
 }
 .status-cancelled {
     background: #f2f4f7;

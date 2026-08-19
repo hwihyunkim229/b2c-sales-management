@@ -571,6 +571,14 @@ def year_month(value: object) -> str:
     return text_value
 
 
+def date_only(value: object) -> str:
+    if value in (None, ""):
+        return "-"
+    if isinstance(value, (date, datetime)):
+        return value.date().isoformat() if isinstance(value, datetime) else value.isoformat()
+    return str(value).strip().split("T", 1)[0].split(" ", 1)[0]
+
+
 KOREA_TIMEZONE = timezone(timedelta(hours=9))
 
 
@@ -695,6 +703,7 @@ def workbook_response(workbook: Workbook, filename: str) -> StreamingResponse:
     )
 
 templates.env.filters["year_month"] = year_month
+templates.env.filters["date_only"] = date_only
 templates.env.filters["korean_datetime"] = korean_datetime
 
 
@@ -705,18 +714,19 @@ SALES_EXPRESSION = """
     + other_amount
 """
 
-SALE_TOTAL_ELIGIBILITY = """
-    COALESCE(item_type, '') NOT LIKE '%배송비%'
-    AND COALESCE(item_type, '') NOT LIKE '%오므론%'
-    AND COALESCE(product_option, '') NOT LIKE '%배송비%'
-    AND COALESCE(product_option, '') NOT LIKE '%오므론%'
-"""
-
-SALE_QUANTITY_EXPRESSION = f"""
-    CASE WHEN {SALE_TOTAL_ELIGIBILITY}
-        AND COALESCE(item_type, '') = '상품'
-        AND ABS({SALES_EXPRESSION}) > 0.001
-        THEN COALESCE(quantity, 0) ELSE 0 END
+SALE_QUANTITY_EXPRESSION = """
+    CASE
+        WHEN COALESCE(item_type, '') NOT LIKE '%배송비%'
+         AND COALESCE(item_type, '') NOT LIKE '%오므론%'
+         AND COALESCE(product_option, '') NOT LIKE '%배송비%'
+         AND COALESCE(product_option, '') NOT LIKE '%오므론%'
+         AND (
+             COALESCE(item_type, '') != '취소'
+             OR REPLACE(COALESCE(product_option, ''), ' ', '') = '본품취소'
+         )
+        THEN COALESCE(quantity, 0)
+        ELSE 0
+    END
 """
 
 PAYMENT_TYPE_EXPRESSION = """
@@ -752,8 +762,33 @@ def payment_type_for_row(row) -> str:
     return payment_types[0] if payment_types else "매출 없음"
 
 
+def dashboard_size_label(value: object) -> str:
+    label = str(value or "미지정").strip()
+    rev2_match = re.fullmatch(r"rev\.?2[_\s-]*(.+)", label, re.IGNORECASE)
+    if rev2_match:
+        return f"Rev.2_{rev2_match.group(1)}"
+    if re.fullmatch(r"\d+(?:\.\d+)?", label):
+        return f"Rev.1_{label}"
+    return label
+
+
+def dashboard_size_sort_key(value: object) -> tuple[object, ...]:
+    label = str(value or "미지정").strip()
+    rev2_match = re.fullmatch(r"rev\.?2[_\s-]*(.+)", label, re.IGNORECASE)
+    if rev2_match:
+        size = rev2_match.group(1)
+        return (1, float(size) if re.fullmatch(r"\d+(?:\.\d+)?", size) else math.inf, size)
+    if re.fullmatch(r"\d+(?:\.\d+)?", label):
+        return (0, float(label), label)
+    return (2, math.inf, label)
+
+
 @app.get("/")
-def dashboard(request: Request):
+def dashboard(
+    request: Request,
+    size_month: str = Query(default=""),
+):
+    selected_size_month = optional_number(size_month, 1, 12)
     with get_connection() as connection:
         summary = connection.execute(
             """
@@ -761,8 +796,7 @@ def dashboard(request: Request):
                 COUNT(*) AS record_count,
                 COALESCE(SUM({quantity_expression}), 0) AS quantity,
                 COALESCE(
-                    SUM(CASE WHEN {eligibility}
-                        THEN {sales_expression} ELSE 0 END),
+                    SUM({sales_expression}),
                     0
                 ) AS sales_amount,
                 COALESCE(SUM(settlement_amount), 0) AS settlement_amount,
@@ -771,7 +805,6 @@ def dashboard(request: Request):
             WHERE is_active = 1 AND batch_is_active = 1
             """.format(
                 quantity_expression=SALE_QUANTITY_EXPRESSION,
-                eligibility=SALE_TOTAL_ELIGIBILITY,
                 sales_expression=SALES_EXPRESSION,
             )
         ).fetchone()
@@ -783,8 +816,7 @@ def dashboard(request: Request):
                 COUNT(*) AS record_count,
                 COALESCE(SUM({quantity_expression}), 0) AS quantity,
                 COALESCE(
-                    SUM(CASE WHEN {eligibility}
-                        THEN {sales_expression} ELSE 0 END),
+                    SUM({sales_expression}),
                     0
                 ) AS sales_amount,
                 COALESCE(SUM(settlement_amount), 0) AS settlement_amount
@@ -794,7 +826,6 @@ def dashboard(request: Request):
             ORDER BY sales_amount DESC
             """.format(
                 quantity_expression=SALE_QUANTITY_EXPRESSION,
-                eligibility=SALE_TOTAL_ELIGIBILITY,
                 sales_expression=SALES_EXPRESSION,
             )
         ).fetchall()
@@ -804,8 +835,7 @@ def dashboard(request: Request):
             SELECT
                 SUBSTR(tax_date, 1, 7) AS period,
                 COALESCE(
-                    SUM(CASE WHEN {eligibility}
-                        THEN {sales_expression} ELSE 0 END),
+                    SUM({sales_expression}),
                     0
                 ) AS sales_amount
             FROM sales_records
@@ -813,10 +843,82 @@ def dashboard(request: Request):
             GROUP BY period
             ORDER BY period
             """.format(
-                eligibility=SALE_TOTAL_ELIGIBILITY,
                 sales_expression=SALES_EXPRESSION,
             )
         ).fetchall()
+
+        size_conditions = ["is_active = 1", "batch_is_active = 1"]
+        size_parameters = []
+        if selected_size_month is not None:
+            size_conditions.append("sales_month = ?")
+            size_parameters.append(selected_size_month)
+        size_where_clause = " AND ".join(size_conditions)
+
+        platform_sizes = connection.execute(
+            f"""
+            SELECT
+                platform,
+                COALESCE(product_option, '미지정') AS product_option,
+                COALESCE(SUM({SALE_QUANTITY_EXPRESSION}), 0) AS quantity
+            FROM sales_records
+            WHERE {size_where_clause}
+            GROUP BY platform, product_option
+            HAVING ABS(SUM({SALE_QUANTITY_EXPRESSION})) > 0.001
+            ORDER BY platform, quantity DESC, product_option
+            """,
+            size_parameters,
+        ).fetchall()
+
+        size_months = connection.execute(
+            """
+            SELECT DISTINCT sales_month
+            FROM sales_records
+            WHERE is_active = 1 AND batch_is_active = 1
+              AND sales_month IS NOT NULL
+            ORDER BY sales_month
+            """
+        ).fetchall()
+
+    platform_size_groups = []
+    platform_size_lookup = {}
+    for row in platform_sizes:
+        platform_name = row["platform"]
+        if platform_name not in platform_size_lookup:
+            group = {
+                "platform": platform_name,
+                "items": [],
+                "total_quantity": 0,
+                "maximum_quantity": 0,
+            }
+            platform_size_lookup[platform_name] = group
+            platform_size_groups.append(group)
+        group = platform_size_lookup[platform_name]
+        quantity = row["quantity"] or 0
+        group["items"].append(
+            {
+                "product_option": row["product_option"],
+                "display_label": dashboard_size_label(row["product_option"]),
+                "quantity": quantity,
+                "absolute_quantity": abs(quantity),
+            }
+        )
+        group["total_quantity"] += quantity
+        group["maximum_quantity"] = max(
+            group["maximum_quantity"], abs(quantity)
+        )
+
+    for group in platform_size_groups:
+        group["items"].sort(
+            key=lambda item: dashboard_size_sort_key(item["product_option"])
+        )
+        absolute_total = sum(
+            item["absolute_quantity"] for item in group["items"]
+        )
+        for item in group["items"]:
+            item["share"] = (
+                item["absolute_quantity"] / absolute_total * 100
+                if absolute_total else 0
+            )
 
     maximum_monthly_sales = max(
         (row["sales_amount"] for row in monthly_sales),
@@ -834,6 +936,10 @@ def dashboard(request: Request):
             "summary": summary,
             "platforms": platforms,
             "monthly_sales": monthly_sales,
+            "platform_sizes": platform_sizes,
+            "platform_size_groups": platform_size_groups,
+            "size_months": size_months,
+            "selected_size_month": selected_size_month,
             "maximum_monthly_sales": maximum_monthly_sales,
             "maximum_platform_sales": maximum_platform_sales,
         },
@@ -976,11 +1082,11 @@ def sales_list(
             f"""
             SELECT
                 COALESCE(SUM({SALE_QUANTITY_EXPRESSION}), 0) AS quantity,
-                COALESCE(SUM(CASE WHEN {SALE_TOTAL_ELIGIBILITY} THEN {SALES_EXPRESSION} ELSE 0 END), 0) AS sales_amount,
-                COALESCE(SUM(CASE WHEN {SALE_TOTAL_ELIGIBILITY} THEN credit_card_amount ELSE 0 END), 0) AS credit_card_amount,
-                COALESCE(SUM(CASE WHEN {SALE_TOTAL_ELIGIBILITY} THEN cash_receipt_amount ELSE 0 END), 0) AS cash_receipt_amount,
-                COALESCE(SUM(CASE WHEN {SALE_TOTAL_ELIGIBILITY} THEN tax_invoice_amount ELSE 0 END), 0) AS tax_invoice_amount,
-                COALESCE(SUM(CASE WHEN {SALE_TOTAL_ELIGIBILITY} THEN other_amount ELSE 0 END), 0) AS other_amount
+                COALESCE(SUM({SALES_EXPRESSION}), 0) AS sales_amount,
+                COALESCE(SUM(credit_card_amount), 0) AS credit_card_amount,
+                COALESCE(SUM(cash_receipt_amount), 0) AS cash_receipt_amount,
+                COALESCE(SUM(tax_invoice_amount), 0) AS tax_invoice_amount,
+                COALESCE(SUM(other_amount), 0) AS other_amount
             FROM sales_records
             {where_clause}
             """,
@@ -1000,7 +1106,6 @@ def sales_list(
                     + tax_invoice_amount
                     + other_amount
                 ) AS sales_amount
-                , {PAYMENT_TYPE_EXPRESSION} AS payment_type
             FROM sales_records
             {where_clause}
             ORDER BY {order_clause}

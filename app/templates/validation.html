@@ -23,7 +23,7 @@
     <article class="metric-card"><span>세금계산서</span><strong>{{ "{:,.0f}".format(report.summary.tax_invoice_amount) }}원</strong></article>
     <article class="metric-card"><span>기타</span><strong>{{ "{:,.0f}".format(report.summary.other_amount) }}원</strong></article>
 </section>
-<p class="summary-note">판매수량은 선수금을 포함하고 오므론·배송비·취소·수수료·0원 상품을 제외합니다. 매출은 선수금과 취소금액을 반영하며 오므론·배송비만 제외합니다.</p>
+<p class="summary-note">판매수량은 오므론·배송비·일반 취소를 제외하고 본품취소는 포함합니다. 매출과 결제수단별 금액은 모든 원본 행을 포함합니다.</p>
 
 <section class="metric-grid metric-grid-five">
     <article class="metric-card">

@@ -299,25 +299,24 @@ def build_validation_report(
         + len(zero_amount_rows)
         + len(review_issue_rows)
     )
-    summary_rows = [
-        row for row in active_rows
-        if "배송비" not in (row["item_type"] or "")
-        and "오므론" not in (row["item_type"] or "")
-        and "배송비" not in (row["product_option"] or "")
-        and "오므론" not in (row["product_option"] or "")
-    ]
     summary = {
         "quantity": sum(
             (row["quantity"] or 0)
-            for row in summary_rows
-            if row["item_type"] == "상품"
-            and abs(row["sales_amount"] or 0) > 0.001
+            for row in active_rows
+            if "배송비" not in (row["item_type"] or "")
+            and "오므론" not in (row["item_type"] or "")
+            and "배송비" not in (row["product_option"] or "")
+            and "오므론" not in (row["product_option"] or "")
+            and (
+                row["item_type"] != "취소"
+                or (row["product_option"] or "").replace(" ", "") == "본품취소"
+            )
         ),
-        "sales_amount": sum((row["sales_amount"] or 0) for row in summary_rows),
-        "credit_card_amount": sum((row["credit_card_amount"] or 0) for row in summary_rows),
-        "cash_receipt_amount": sum((row["cash_receipt_amount"] or 0) for row in summary_rows),
-        "tax_invoice_amount": sum((row["tax_invoice_amount"] or 0) for row in summary_rows),
-        "other_amount": sum((row["other_amount"] or 0) for row in summary_rows),
+        "sales_amount": sum((row["sales_amount"] or 0) for row in active_rows),
+        "credit_card_amount": sum((row["credit_card_amount"] or 0) for row in active_rows),
+        "cash_receipt_amount": sum((row["cash_receipt_amount"] or 0) for row in active_rows),
+        "tax_invoice_amount": sum((row["tax_invoice_amount"] or 0) for row in active_rows),
+        "other_amount": sum((row["other_amount"] or 0) for row in active_rows),
     }
 
     return {

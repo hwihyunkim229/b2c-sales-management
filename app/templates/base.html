@@ -4,10 +4,22 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}B2C Sales{% endblock %}</title>
+    <script>
+        try {
+            if (localStorage.getItem("b2c-sidebar-collapsed") === "true") {
+                document.documentElement.classList.add("sidebar-collapsed-preload");
+            }
+        } catch (error) {
+            // 저장소 접근이 제한된 환경에서는 기본 펼침 상태를 사용합니다.
+        }
+    </script>
     <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
 </head>
 <body>
     <aside class="sidebar">
+        <button class="sidebar-toggle" type="button" aria-label="사이드바 접기" aria-expanded="true">
+            <span aria-hidden="true">‹</span>
+        </button>
         <a class="brand" href="/">
             <span class="brand-mark">B</span>
             <span>
@@ -19,14 +31,14 @@
         {% set current_path = request.url.path %}
         <nav aria-label="주요 메뉴">
             <span class="nav-label">MENU</span>
-            <a href="/" class="{% if current_path == '/' %}active{% endif %}" {% if current_path == '/' %}aria-current="page"{% endif %}><span class="nav-dot"></span>대시보드</a>
-            <a href="/sales" class="{% if current_path.startswith('/sales') %}active{% endif %}" {% if current_path.startswith('/sales') %}aria-current="page"{% endif %}><span class="nav-dot"></span>통합 판매내역</a>
-            <a href="/validation" class="{% if current_path.startswith('/validation') %}active{% endif %}" {% if current_path.startswith('/validation') %}aria-current="page"{% endif %}><span class="nav-dot"></span>매출 대사</a>
-            <a href="/reports" class="{% if current_path.startswith('/reports') %}active{% endif %}" {% if current_path.startswith('/reports') %}aria-current="page"{% endif %}><span class="nav-dot"></span>분석·세무·회계</a>
-            <a href="/hometax" class="{% if current_path.startswith('/hometax') %}active{% endif %}" {% if current_path.startswith('/hometax') %}aria-current="page"{% endif %}><span class="nav-dot"></span>홈택스 플랫폼 지정</a>
-            <a href="/imports" class="{% if current_path.startswith('/imports') %}active{% endif %}" {% if current_path.startswith('/imports') %}aria-current="page"{% endif %}><span class="nav-dot"></span>엑셀 데이터 연동</a>
+            <a href="/" title="대시보드" class="{% if current_path == '/' %}active{% endif %}" {% if current_path == '/' %}aria-current="page"{% endif %}><span class="nav-dot"></span><span class="nav-text">대시보드</span></a>
+            <a href="/sales" title="통합 판매내역" class="{% if current_path.startswith('/sales') %}active{% endif %}" {% if current_path.startswith('/sales') %}aria-current="page"{% endif %}><span class="nav-dot"></span><span class="nav-text">통합 판매내역</span></a>
+            <a href="/validation" title="매출 대사" class="{% if current_path.startswith('/validation') %}active{% endif %}" {% if current_path.startswith('/validation') %}aria-current="page"{% endif %}><span class="nav-dot"></span><span class="nav-text">매출 대사</span></a>
+            <a href="/reports" title="분석·세무·회계" class="{% if current_path.startswith('/reports') %}active{% endif %}" {% if current_path.startswith('/reports') %}aria-current="page"{% endif %}><span class="nav-dot"></span><span class="nav-text">분석·세무·회계</span></a>
+            <a href="/hometax" title="홈택스 플랫폼 지정" class="{% if current_path.startswith('/hometax') %}active{% endif %}" {% if current_path.startswith('/hometax') %}aria-current="page"{% endif %}><span class="nav-dot"></span><span class="nav-text">홈택스 플랫폼 지정</span></a>
+            <a href="/imports" title="엑셀 데이터 연동" class="{% if current_path.startswith('/imports') %}active{% endif %}" {% if current_path.startswith('/imports') %}aria-current="page"{% endif %}><span class="nav-dot"></span><span class="nav-text">엑셀 데이터 연동</span></a>
             {% if request.state.user.role == 'admin' %}
-            <a href="/users" class="{% if current_path.startswith('/users') %}active{% endif %}" {% if current_path.startswith('/users') %}aria-current="page"{% endif %}><span class="nav-dot"></span>사용자 관리</a>
+            <a href="/users" title="사용자 관리" class="{% if current_path.startswith('/users') %}active{% endif %}" {% if current_path.startswith('/users') %}aria-current="page"{% endif %}><span class="nav-dot"></span><span class="nav-text">사용자 관리</span></a>
             {% endif %}
         </nav>
 

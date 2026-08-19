@@ -3,6 +3,63 @@ const modalTitle = document.querySelector("#confirm-modal-title");
 const modalMessage = document.querySelector("#confirm-modal-message");
 const cancelButton = document.querySelector("#confirm-modal-cancel");
 const submitButton = document.querySelector("#confirm-modal-submit");
+const sidebarToggle = document.querySelector(".sidebar-toggle");
+
+if (sidebarToggle) {
+    const storageKey = "b2c-sidebar-collapsed";
+    const applySidebarState = (collapsed) => {
+        document.body.classList.toggle("sidebar-collapsed", collapsed);
+        document.documentElement.classList.remove("sidebar-collapsed-preload");
+        sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
+        sidebarToggle.setAttribute(
+            "aria-label",
+            collapsed ? "사이드바 펼치기" : "사이드바 접기",
+        );
+    };
+
+    applySidebarState(localStorage.getItem(storageKey) === "true");
+    sidebarToggle.addEventListener("click", () => {
+        const collapsed = !document.body.classList.contains("sidebar-collapsed");
+        applySidebarState(collapsed);
+        localStorage.setItem(storageKey, String(collapsed));
+    });
+}
+
+const sizeTabs = Array.from(document.querySelectorAll("[data-size-tab]"));
+const sizePanels = Array.from(document.querySelectorAll("[data-size-panel]"));
+const scrollPreservingForms = document.querySelectorAll("form[data-preserve-scroll]");
+const preservedScrollKey = `b2c-scroll:${window.location.pathname}`;
+
+scrollPreservingForms.forEach((form) => {
+    form.addEventListener("submit", () => {
+        sessionStorage.setItem(preservedScrollKey, String(window.scrollY));
+    });
+});
+
+const preservedScroll = sessionStorage.getItem(preservedScrollKey);
+if (preservedScroll !== null) {
+    sessionStorage.removeItem(preservedScrollKey);
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            window.scrollTo(0, Number(preservedScroll));
+        });
+    });
+}
+
+sizeTabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+        const selectedIndex = tab.dataset.sizeTab;
+        sizeTabs.forEach((item) => {
+            item.setAttribute(
+                "aria-selected",
+                String(item.dataset.sizeTab === selectedIndex),
+            );
+        });
+        sizePanels.forEach((panel) => {
+            panel.hidden = panel.dataset.sizePanel !== selectedIndex;
+        });
+    });
+});
 
 let pendingForm = null;
 
