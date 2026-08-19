@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>로그인 | B2C Sales</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
+</head>
+<body class="auth-page">
+    <main class="auth-shell">
+        <section class="auth-card">
+            <div class="auth-brand">
+                <span class="brand-mark">B</span>
+                <span><strong>B2C Sales</strong><small>Management</small></span>
+            </div>
+            <div class="auth-heading">
+                <span>ACCOUNT LOGIN</span>
+                <h1>로그인</h1>
+                <p>판매 데이터 관리 시스템에 접속합니다.</p>
+            </div>
+
+            {% if error == 'invalid' %}
+            <p class="auth-error" role="alert">아이디 또는 비밀번호가 올바르지 않습니다.</p>
+            {% endif %}
+
+            <form class="auth-form" method="post" action="/login">
+                <input type="hidden" name="next" value="{{ next }}">
+                <label>
+                    <span>아이디</span>
+                    <input name="username" autocomplete="username" required autofocus>
+                </label>
+                <label>
+                    <span>비밀번호</span>
+                    <input type="password" name="password" autocomplete="current-password" required>
+                </label>
+                <button class="button auth-submit" type="submit">로그인</button>
+            </form>
+            <p class="auth-note">보안을 위해 로그인 후 2시간이 지나면 자동으로 로그아웃됩니다.</p>
+        </section>
+    </main>
+</body>
+</html>

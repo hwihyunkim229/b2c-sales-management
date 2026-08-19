@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}분석·회계 | B2C Sales{% endblock %}
+
+{% block content %}
+<header class="page-header">
+    <div>
+        <p class="eyebrow">REPORTS</p>
+        <h1>매출·상품·세무·회계 분석</h1>
+        <p>통합 판매자료와 홈택스 자료를 기준으로 자동 집계합니다.</p>
+    </div>
+    <a class="button" href="/exports/reports.xlsx">엑셀 다운로드</a>
+</header>
+
+{% for title, rows, columns in [
+    ('월별 매출', monthly, [('period', '연월'), ('quantity', '수량'), ('sales_amount', '매출')]),
+    ('상품·사이즈', products, [('item_type', '유형'), ('product_option', '상품/사이즈'), ('quantity', '수량'), ('sales_amount', '매출')]),
+    ('부가세 기초자료', taxes, [('period', '연월'), ('credit_card_amount', '신용카드'), ('cash_receipt_amount', '현금영수증'), ('tax_invoice_amount', '세금계산서'), ('other_amount', '기타'), ('vat_amount', '예상 부가세')]),
+    ('홈택스 대사', hometax_reconciliation, [('period', '연월'), ('platform', '플랫폼'), ('sales_amount', '웹 판매자료'), ('hometax_amount', '홈택스 자료'), ('difference_amount', '차이')]),
+    ('회계처리 집계', accounting, [('platform', '플랫폼'), ('sales_amount', '매출'), ('supply_amount', '공급가액'), ('vat_amount', '부가세'), ('fee_amount', '수수료')])
+] %}
+<section class="panel report-panel">
+    <div class="panel-heading">
+        <h2>{{ title }}</h2>
+    </div>
+    <div class="table-wrap report-table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    {% for key, label in columns %}
+                    <th>{{ label }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    {% for key, label in columns %}
+                    <td>
+                        {% if key == 'quantity' %}
+                            {{ "{:,.0f}".format(row[key] or 0) }}
+                        {% elif key in ['sales_amount', 'supply_amount', 'vat_amount', 'fee_amount', 'credit_card_amount', 'cash_receipt_amount', 'tax_invoice_amount', 'other_amount', 'hometax_amount', 'difference_amount'] %}
+                            {{ "{:,.0f}".format(row[key] or 0) }}원
+                        {% else %}
+                            {{ row[key] }}
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% else %}
+                <tr>
+                    <td class="empty" colspan="{{ columns | length }}">표시할 자료가 없습니다.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endfor %}
+{% endblock %}

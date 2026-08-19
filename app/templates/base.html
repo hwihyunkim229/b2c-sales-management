@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}B2C Sales{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
+</head>
+<body>
+    <aside class="sidebar">
+        <a class="brand" href="/">
+            <span class="brand-mark">B</span>
+            <span>
+                <strong>B2C Sales</strong>
+                <small>Management</small>
+            </span>
+        </a>
+
+        {% set current_path = request.url.path %}
+        <nav aria-label="주요 메뉴">
+            <span class="nav-label">MENU</span>
+            <a href="/" class="{% if current_path == '/' %}active{% endif %}" {% if current_path == '/' %}aria-current="page"{% endif %}><span class="nav-dot"></span>대시보드</a>
+            <a href="/sales" class="{% if current_path.startswith('/sales') %}active{% endif %}" {% if current_path.startswith('/sales') %}aria-current="page"{% endif %}><span class="nav-dot"></span>통합 판매내역</a>
+            <a href="/validation" class="{% if current_path.startswith('/validation') %}active{% endif %}" {% if current_path.startswith('/validation') %}aria-current="page"{% endif %}><span class="nav-dot"></span>매출 대사</a>
+            <a href="/reports" class="{% if current_path.startswith('/reports') %}active{% endif %}" {% if current_path.startswith('/reports') %}aria-current="page"{% endif %}><span class="nav-dot"></span>분석·세무·회계</a>
+            <a href="/hometax" class="{% if current_path.startswith('/hometax') %}active{% endif %}" {% if current_path.startswith('/hometax') %}aria-current="page"{% endif %}><span class="nav-dot"></span>홈택스 플랫폼 지정</a>
+            <a href="/imports" class="{% if current_path.startswith('/imports') %}active{% endif %}" {% if current_path.startswith('/imports') %}aria-current="page"{% endif %}><span class="nav-dot"></span>엑셀 데이터 연동</a>
+            {% if request.state.user.role == 'admin' %}
+            <a href="/users" class="{% if current_path.startswith('/users') %}active{% endif %}" {% if current_path.startswith('/users') %}aria-current="page"{% endif %}><span class="nav-dot"></span>사용자 관리</a>
+            {% endif %}
+        </nav>
+
+        <div class="sidebar-account">
+            <span class="account-avatar">{{ request.state.user.display_name[0] }}</span>
+            <span class="account-copy">
+                <strong>{{ request.state.user.display_name }}</strong>
+                <small>{{ request.state.user.username }} · {{ {'admin':'관리자','reviewer':'검수자','viewer':'조회자'}.get(request.state.user.role, request.state.user.role) }}</small>
+            </span>
+            <form method="post" action="/logout">
+                <button type="submit">로그아웃</button>
+            </form>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        {% block content %}{% endblock %}
+    </main>
+
+    <div
+        id="confirm-modal"
+        class="modal-backdrop"
+        aria-hidden="true"
+    >
+        <section
+            class="modal-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-modal-title"
+        >
+            <div class="modal-icon" aria-hidden="true">!</div>
+            <h2 id="confirm-modal-title">계속 진행할까요?</h2>
+            <p id="confirm-modal-message"></p>
+            <div class="modal-actions">
+                <button
+                    id="confirm-modal-cancel"
+                    class="button button-secondary"
+                    type="button"
+                >
+                    취소
+                </button>
+                <button
+                    id="confirm-modal-submit"
+                    class="button button-danger"
+                    type="button"
+                >
+                    확인
+                </button>
+            </div>
+        </section>
+    </div>
+
+    <script src="{{ url_for('static', path='/app.js') }}"></script>
+</body>
+</html>

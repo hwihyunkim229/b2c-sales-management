@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}주문 상세 | B2C Sales{% endblock %}
+{% block content %}
+<header class="page-header">
+    <div><p class="eyebrow">SALES DETAIL</p><h1>{{ record.order_number }}</h1><p>{{ record.platform }} · 원본 {{ record.source_row }}행</p></div>
+    <div class="page-actions">
+        <a class="button button-secondary" href="/sales">목록으로</a>
+        {% if request.state.user.role != 'viewer' %}
+        <a class="button" href="/sales/{{ record.id }}/edit">수정·검수</a>
+        <form method="post" action="/sales/{{ record.id }}/exclude" data-confirm-title="판매내역을 제외할까요?" data-confirm-message="원본 기록과 변경 이력은 유지되며 모든 집계에서 제외됩니다." data-confirm-label="제외하기">
+            <button class="button button-danger" type="submit">집계 제외</button>
+        </form>
+        {% endif %}
+    </div>
+</header>
+<section class="panel detail-grid">
+    {% for label, value in [
+        ('플랫폼', record.platform), ('매출월', record.sales_month),
+        ('세금신고일', record.tax_date | year_month), ('상품유형', record.item_type),
+        ('상품/사이즈', record.product_option),
+        ('수량', "{:,.0f}".format(record.quantity or 0)),
+        ('신용카드', "{:,.0f}원".format(record.credit_card_amount or 0)),
+        ('현금영수증', "{:,.0f}원".format(record.cash_receipt_amount or 0)),
+        ('세금계산서', "{:,.0f}원".format(record.tax_invoice_amount or 0)),
+        ('기타', "{:,.0f}원".format(record.other_amount or 0)),
+        ('수수료1', "{:,.0f}원".format(record.fee_amount_1 or 0)),
+        ('수수료2', "{:,.0f}원".format(record.fee_amount_2 or 0)),
+        ('정산금액', "{:,.0f}원".format(record.settlement_amount or 0)),
+        ('구매자', record.buyer_name),
+        ('비고', record.note),
+        ('확인상태', {'normal':'정상','reviewed':'확인완료','issue':'확인필요'}.get(record.review_status, record.review_status)),
+        ('검수메모', record.review_note)
+    ] %}
+    <div
+        class="detail-item {% if label in ['신용카드', '현금영수증', '세금계산서', '기타', '수수료1', '수수료2', '정산금액'] %}detail-item-money{% endif %}"
+    >
+        <div class="detail-label">
+            <span class="detail-label-dot" aria-hidden="true"></span>
+            {{ label }}
+        </div>
+        <strong class="detail-value">
+            {{ value if value not in [None, ''] else '-' }}
+        </strong>
+    </div>
+    {% endfor %}
+</section>
+{% endblock %}

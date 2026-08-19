@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+
+{% block title %}매출 대사 관리 | B2C Sales{% endblock %}
+
+{% block content %}
+<header class="page-header">
+    <div>
+        <p class="eyebrow">SALES RECONCILIATION</p>
+        <h1>매출 대사 관리</h1>
+        <p>업로드 원본과 현재 판매자료를 대조하고 확인이 필요한 내역을 한 번에 보여줍니다.</p>
+    </div>
+    <div class="page-actions">
+        <a class="button button-secondary" href="/validation">다시 검증</a>
+        <a class="button" href="/exports/validation.xlsx">엑셀 다운로드</a>
+    </div>
+</header>
+
+<section class="metric-grid metric-grid-five">
+    <article class="metric-card">
+        <span>검증 원본 파일</span>
+        <strong>{{ report.source_file_count }}개</strong>
+    </article>
+    <article class="metric-card">
+        <span>현재 판매내역</span>
+        <strong>{{ "{:,}".format(report.active_count) }}건</strong>
+    </article>
+    <article class="metric-card {% if report.mismatch_count %}metric-warning{% else %}metric-success{% endif %}">
+        <span>플랫폼 불일치</span>
+        <strong>{{ report.mismatch_count }}개</strong>
+    </article>
+    <article class="metric-card {% if report.issue_count %}metric-warning{% else %}metric-success{% endif %}">
+        <span>필수 확인사항</span>
+        <strong>{{ report.issue_count }}건</strong>
+    </article>
+    <article class="metric-card">
+        <span>집계 제외</span>
+        <strong>{{ report.excluded_count }}건</strong>
+    </article>
+</section>
+
+{% if report.source_errors %}
+<section class="validation-alert validation-alert-danger">
+    <strong>읽을 수 없는 원본 파일이 있습니다.</strong>
+    {% for message in report.source_errors %}<span>{{ message }}</span>{% endfor %}
+</section>
+{% endif %}
+
+<section class="panel report-panel">
+    <div class="panel-heading">
+        <div>
+            <h2>플랫폼별 원본 대조</h2>
+            <p class="panel-description">차이는 현재 웹 자료에서 업로드 원본을 뺀 값입니다.</p>
+        </div>
+        {% if report.mismatch_count %}
+        <span class="validation-state validation-state-warning">확인 필요</span>
+        {% else %}
+        <span class="validation-state validation-state-success">일치</span>
+        {% endif %}
+    </div>
+    <div class="table-wrap">
+        <table class="validation-reconciliation-table" data-sortable-table>
+            <thead>
+                <tr>
+                    <th>플랫폼</th>
+                    <th>원본 건수</th>
+                    <th>웹 건수</th>
+                    <th>건수 차이</th>
+                    <th>원본 수량</th>
+                    <th>웹 수량</th>
+                    <th>수량 차이</th>
+                    <th>원본 매출</th>
+                    <th>웹 매출</th>
+                    <th>매출 차이</th>
+                    <th>상태</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in report.reconciliation %}
+                {% set matched = row.count_difference == 0 and row.quantity_difference|abs < 0.001 and row.sales_difference|abs < 0.001 %}
+                <tr>
+                    <td><span class="platform-badge">{{ row.platform }}</span></td>
+                    <td>{{ "{:,.0f}".format(row.source_count) }}</td>
+                    <td>{{ "{:,.0f}".format(row.database_count) }}</td>
+                    <td class="{% if row.count_difference %}validation-difference{% endif %}">{{ "{:+,.0f}".format(row.count_difference) }}</td>
+                    <td>{{ "{:,.0f}".format(row.source_quantity) }}</td>
+                    <td>{{ "{:,.0f}".format(row.database_quantity) }}</td>
+                    <td class="{% if row.quantity_difference|abs >= 0.001 %}validation-difference{% endif %}">{{ "{:+,.0f}".format(row.quantity_difference) }}</td>
+                    <td>{{ "{:,.0f}".format(row.source_sales) }}원</td>
+                    <td>{{ "{:,.0f}".format(row.database_sales) }}원</td>
+                    <td class="{% if row.sales_difference|abs >= 0.001 %}validation-difference{% endif %}">{{ "{:+,.0f}".format(row.sales_difference) }}원</td>
+                    <td><span class="validation-state validation-state-{{ 'success' if matched else 'warning' }}">{{ '일치' if matched else '확인 필요' }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+{% set sections = [
+    ('원본 누락', '원본에는 있지만 웹에 반영되지 않은 행입니다.', report.missing_source_rows, 'source'),
+    ('필수값 누락', '매출월·일자·상품·수량 중 비어 있는 항목입니다.', report.missing_fields, 'missing'),
+    ('0원 거래', '매출 합계가 0원인 판매 행입니다. 정상 행인지 확인해 주세요.', report.zero_amount_rows, 'record'),
+    ('검수 확인 필요', '판매내역에서 확인 필요로 표시한 행입니다.', report.review_issue_rows, 'record')
+] %}
+
+{% for title, description, rows, kind in sections %}
+<section class="panel report-panel">
+    <div class="panel-heading">
+        <div>
+            <h2>{{ title }}</h2>
+            <p class="panel-description">{{ description }}</p>
+        </div>
+        <span class="validation-count">{{ rows|length }}건</span>
+    </div>
+    <div class="table-wrap validation-table-wrap">
+        <table data-sortable-table>
+            <thead>
+                <tr>
+                    <th>플랫폼</th>
+                    <th>원본 행</th>
+                    <th>주문번호</th>
+                    {% if kind == 'missing' %}<th>누락 항목</th>{% endif %}
+                    {% if kind != 'source' %}<th>상품/사이즈</th>{% endif %}
+                    <th>수량</th>
+                    <th>매출</th>
+                    {% if kind != 'source' %}<th>보기</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    <td>{{ row.platform }}</td>
+                    <td>{{ row.source_row }}</td>
+                    <td>{{ row.order_number }}</td>
+                    {% if kind == 'missing' %}<td class="validation-difference">{{ row.issue_detail }}</td>{% endif %}
+                    {% if kind != 'source' %}<td>{{ row.product_option or '-' }}</td>{% endif %}
+                    <td>{{ "{:,.0f}".format(row.quantity or 0) }}</td>
+                    <td>{{ "{:,.0f}".format(row.sales_amount or 0) }}원</td>
+                    {% if kind != 'source' %}<td><a class="detail-link" href="/sales/{{ row.id }}">상세</a></td>{% endif %}
+                </tr>
+                {% else %}
+                <tr><td class="empty" colspan="8">확인할 데이터가 없습니다.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endfor %}
+
+<section class="panel report-panel">
+    <div class="panel-heading">
+        <div>
+            <h2>중복 의심 거래</h2>
+            <p class="panel-description">동일 구매자의 같은 주문·옵션·수량·금액이 여러 행인 경우입니다. 실제 복수 구매일 수 있으므로 자동 삭제하지 않습니다.</p>
+        </div>
+        <span class="validation-count">{{ report.duplicate_suspects|length }}그룹</span>
+    </div>
+    <div class="table-wrap validation-table-wrap">
+        <table data-sortable-table>
+            <thead>
+                <tr>
+                    <th>플랫폼</th><th>주문번호</th><th>구매자</th><th>상품/사이즈</th>
+                    <th>수량</th><th>매출</th><th>행 수</th><th>원본 행</th><th>보기</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in report.duplicate_suspects %}
+                <tr>
+                    <td>{{ row.platform }}</td><td>{{ row.order_number }}</td><td>{{ row.buyer_name or '-' }}</td>
+                    <td>{{ row.product_option or '-' }}</td><td>{{ "{:,.0f}".format(row.quantity or 0) }}</td>
+                    <td>{{ "{:,.0f}".format(row.sales_amount or 0) }}원</td><td>{{ row.record_count }}</td>
+                    <td>{{ row.source_rows }}</td><td><a class="detail-link" href="/sales/{{ row.record_id }}">상세</a></td>
+                </tr>
+                {% else %}
+                <tr><td class="empty" colspan="9">중복 의심 거래가 없습니다.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block title %}사용자 관리 | B2C Sales{% endblock %}
+
+{% block content %}
+<header class="page-header">
+    <div>
+        <p class="eyebrow">USER MANAGEMENT</p>
+        <h1>사용자 관리</h1>
+        <p>계정을 만들고 역할, 사용 상태와 임시 비밀번호를 관리합니다.</p>
+    </div>
+</header>
+
+{% if message %}
+<p class="page-notice success-notice">
+    {{ {'created':'계정이 생성되었습니다.','role':'사용자 권한이 변경되었습니다.','status':'계정 상태가 변경되었습니다.','reset':'임시 비밀번호가 설정되었습니다.'}.get(message, '처리되었습니다.') }}
+</p>
+{% endif %}
+{% if error %}
+<p class="page-notice error-notice" role="alert">
+    {{ {
+        'username':'아이디는 영문 소문자·숫자·마침표·밑줄·하이픈으로 3~30자 입력해 주세요.',
+        'name':'이름은 1~30자로 입력해 주세요.',
+        'role':'올바른 역할을 선택해 주세요.',
+        'confirm':'임시 비밀번호 확인이 일치하지 않습니다.',
+        'password':'임시 비밀번호는 10자 이상이며 영문자·숫자·특수문자를 포함해야 합니다.',
+        'duplicate':'이미 사용 중인 아이디입니다.',
+        'self_role':'현재 로그인한 계정의 권한은 직접 변경할 수 없습니다.',
+        'self_status':'현재 로그인한 계정은 비활성화할 수 없습니다.',
+        'reset_confirm':'재설정할 임시 비밀번호 확인이 일치하지 않습니다.',
+        'reset_password':'재설정할 비밀번호는 10자 이상이며 영문자·숫자·특수문자를 포함해야 합니다.',
+        'missing':'사용자 계정을 찾을 수 없습니다.'
+    }.get(error, '요청을 처리하지 못했습니다.') }}
+</p>
+{% endif %}
+
+<section class="panel user-create-panel">
+    <div class="panel-heading">
+        <div>
+            <h2>신규 계정 생성</h2>
+            <p class="panel-description">생성된 사용자는 최초 로그인 시 새 비밀번호를 설정해야 합니다.</p>
+        </div>
+    </div>
+    <form class="user-create-form" method="post" action="/users">
+        <label><span>아이디</span><input name="username" pattern="[a-z0-9._-]{3,30}" placeholder="예: reviewer01" required></label>
+        <label><span>이름</span><input name="display_name" maxlength="30" placeholder="예: 홍길동" required></label>
+        <label>
+            <span>역할</span>
+            <select name="role" required>
+                <option value="reviewer">검수자</option>
+                <option value="viewer">조회자</option>
+                <option value="admin">관리자</option>
+            </select>
+        </label>
+        <label><span>임시 비밀번호</span><input type="password" name="temporary_password" minlength="10" autocomplete="new-password" required></label>
+        <label><span>비밀번호 확인</span><input type="password" name="confirm_password" minlength="10" autocomplete="new-password" required></label>
+        <button class="button" type="submit">계정 생성</button>
+        <p class="form-help">임시 비밀번호는 10자 이상이며 영문자·숫자·특수문자를 각각 포함해야 합니다.</p>
+    </form>
+</section>
+
+<section class="panel">
+    <div class="panel-heading">
+        <h2>계정 목록</h2>
+    </div>
+    <div class="table-wrap">
+        <table class="user-table">
+            <thead>
+                <tr>
+                    <th>사용자</th>
+                    <th>역할</th>
+                    <th>상태</th>
+                    <th>비밀번호</th>
+                    <th>최근 로그인 (KST)</th>
+                    <th>관리</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td><strong>{{ user.display_name }}</strong><small>{{ user.username }}</small></td>
+                    <td>
+                        {% if user.id == request.state.user.id %}
+                        <span class="role-badge role-{{ user.role }}">{{ role_labels[user.role] }}</span>
+                        {% else %}
+                        <form class="inline-control" method="post" action="/users/{{ user.id }}/role">
+                            <select name="role" aria-label="{{ user.username }} 역할">
+                                {% for value, label in role_labels.items() %}<option value="{{ value }}" {% if user.role == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                            </select>
+                            <button class="small-action" type="submit">변경</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                    <td><span class="status {% if user.is_active %}status-completed{% else %}status-cancelled{% endif %}">{{ '사용 중' if user.is_active else '비활성' }}</span></td>
+                    <td>{{ '최초 변경 대기' if user.must_change_password else '설정 완료' }}</td>
+                    <td>{{ user.last_login_at | korean_datetime }}</td>
+                    <td>
+                        <div class="user-actions">
+                            {% if user.id != request.state.user.id %}
+                            <form method="post" action="/users/{{ user.id }}/status" data-confirm-title="계정 상태를 변경할까요?" data-confirm-message="비활성화하면 현재 로그인 세션도 즉시 종료됩니다.">
+                                <button class="small-action {% if user.is_active %}danger-text{% endif %}" type="submit">{{ '비활성화' if user.is_active else '활성화' }}</button>
+                            </form>
+                            {% endif %}
+                            <details class="password-reset">
+                                <summary>비밀번호 초기화</summary>
+                                <form method="post" action="/users/{{ user.id }}/reset-password">
+                                    <input type="password" name="temporary_password" minlength="10" placeholder="새 임시 비밀번호" autocomplete="new-password" required>
+                                    <input type="password" name="confirm_password" minlength="10" placeholder="임시 비밀번호 확인" autocomplete="new-password" required>
+                                    <button class="small-action" type="submit">초기화</button>
+                                </form>
+                            </details>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

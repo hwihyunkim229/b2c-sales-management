@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+data/*.db
+data/initial_admin_credentials.txt
+uploads/*
+!uploads/.gitkeep
+work/
+node_modules/

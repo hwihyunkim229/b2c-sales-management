@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block title %}권한 없음 | B2C Sales{% endblock %}
+
+{% block content %}
+<section class="permission-card">
+    <span class="permission-icon">!</span>
+    <p class="eyebrow">ACCESS DENIED</p>
+    <h1>이 작업을 수행할 권한이 없습니다.</h1>
+    <p>필요한 경우 관리자에게 계정 권한 변경을 요청해 주세요.</p>
+    <a class="button" href="/">대시보드로 이동</a>
+</section>
+{% endblock %}

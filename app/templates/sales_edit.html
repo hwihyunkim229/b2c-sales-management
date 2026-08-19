@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}판매내역 수정 | B2C Sales{% endblock %}
+{% block content %}
+<header class="page-header">
+    <div>
+        <p class="eyebrow">REVIEW</p>
+        <h1>판매내역 수정·검수</h1>
+        <p>{{ record.platform }} · 주문번호 {{ record.order_number }}</p>
+    </div>
+
+    <a class="button button-secondary" href="/sales/{{ record.id }}">
+        취소
+    </a>
+</header>
+<form class="edit-form panel" method="post">
+    {% for name, label, value, input_type in [
+        ('product_option','상품/사이즈',record.product_option,'text'),
+        ('quantity','수량',record.quantity,'number'),
+        ('credit_card_amount','신용카드',record.credit_card_amount,'number'),
+        ('cash_receipt_amount','현금영수증',record.cash_receipt_amount,'number'),
+        ('tax_invoice_amount','세금계산서',record.tax_invoice_amount,'number'),
+        ('other_amount','기타',record.other_amount,'number'),
+        ('fee_amount_1','수수료1',record.fee_amount_1,'number'),
+        ('fee_amount_2','수수료2',record.fee_amount_2,'number'),
+        ('settlement_amount','정산금액',record.settlement_amount,'number'),
+        ('buyer_name','구매자',record.buyer_name,'text')
+    ] %}
+    <label>
+        <span>{{ label }}</span>
+        <input name="{{ name }}" type="{{ input_type }}" step="any" value="{{ value or '' }}">
+    </label>
+
+    {% endfor %}
+
+    <label class="form-wide">
+        <span>비고</span>
+        <textarea name="note">{{ record.note or '' }}</textarea>
+    </label>
+
+    <label>
+        <span>확인상태</span>
+        <select name="review_status">
+            <option value="normal" {% if record.review_status == 'normal' %}selected{% endif %}>
+                정상
+            </option>
+            
+            <option value="issue" {% if record.review_status == 'issue' %}selected{% endif %}>
+                확인필요
+            </option>
+            
+            <option value="reviewed" {% if record.review_status == 'reviewed' %}selected{% endif %}>
+                확인완료
+            </option>
+        </select>
+    </label>
+
+    <label class="form-wide">
+        <span>검수메모</span>
+        <textarea name="review_note">{{ record.review_note or '' }}</textarea>
+    </label>
+
+    <div class="form-actions form-wide">
+        <button class="button" type="submit">저장하기</button>
+    </div>
+</form>
+{% endblock %}
