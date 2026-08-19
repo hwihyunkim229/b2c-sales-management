@@ -87,7 +87,9 @@ class PostgresConnection:
 
     @staticmethod
     def _sql(sql: str) -> str:
-        return sql.replace("?", "%s")
+        # psycopg uses percent-style placeholders. Escape literal percent
+        # characters first, then translate the app's portable qmark syntax.
+        return sql.replace("%", "%%").replace("?", "%s")
 
     def execute(self, sql: str, parameters: Sequence[object] = ()):
         cursor = self.raw_connection.cursor()
