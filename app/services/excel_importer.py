@@ -210,8 +210,15 @@ def import_workbook(
             start=4,
         ):
             order_number = _text(row[1] if len(row) > 1 else None)
+            product_option = _text(row[4] if len(row) > 4 else None)
+            quantity = _number(row[5] if len(row) > 5 else None)
+            normalized_product = product_option.replace(" ", "").lower()
+            preserve_without_order = (
+                "배송비" in normalized_product
+                or "오므론" in normalized_product
+            )
 
-            if not order_number:
+            if not order_number and not preserve_without_order:
                 has_sales_values = any(
                     value not in (None, "", 0)
                     for value in row[2:16]
@@ -247,8 +254,6 @@ def import_workbook(
                 continue
 
             result.total_rows += 1
-            product_option = _text(row[4] if len(row) > 4 else None)
-            quantity = _number(row[5] if len(row) > 5 else None)
             row_fingerprint = _fingerprint(
                 platform,
                 source_row,
@@ -284,6 +289,15 @@ def import_workbook(
             )
 
             issues = []
+
+            if not order_number:
+                issues.append(
+                    (
+                        "order_number",
+                        "missing_order_number_preserved",
+                        "오므론·배송비 행으로 원본 보존했으며 매출 집계에서는 제외됩니다.",
+                    )
+                )
 
             if parsed_month is None:
                 issues.append(

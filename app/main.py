@@ -705,6 +705,52 @@ SALES_EXPRESSION = """
     + other_amount
 """
 
+SALE_TOTAL_ELIGIBILITY = """
+    COALESCE(item_type, '') NOT LIKE '%배송비%'
+    AND COALESCE(item_type, '') NOT LIKE '%오므론%'
+    AND COALESCE(product_option, '') NOT LIKE '%배송비%'
+    AND COALESCE(product_option, '') NOT LIKE '%오므론%'
+"""
+
+SALE_QUANTITY_EXPRESSION = f"""
+    CASE WHEN {SALE_TOTAL_ELIGIBILITY}
+        AND COALESCE(item_type, '') = '상품'
+        AND ABS({SALES_EXPRESSION}) > 0.001
+        THEN COALESCE(quantity, 0) ELSE 0 END
+"""
+
+PAYMENT_TYPE_EXPRESSION = """
+    CASE
+        WHEN (
+            CASE WHEN credit_card_amount != 0 THEN 1 ELSE 0 END
+          + CASE WHEN cash_receipt_amount != 0 THEN 1 ELSE 0 END
+          + CASE WHEN tax_invoice_amount != 0 THEN 1 ELSE 0 END
+          + CASE WHEN other_amount != 0 THEN 1 ELSE 0 END
+        ) > 1 THEN '복합결제'
+        WHEN credit_card_amount != 0 THEN '신용카드'
+        WHEN cash_receipt_amount != 0 THEN '현금영수증'
+        WHEN tax_invoice_amount != 0 THEN '세금계산서'
+        WHEN other_amount != 0 THEN '기타'
+        ELSE '매출 없음'
+    END
+"""
+
+
+def payment_type_for_row(row) -> str:
+    payment_types = [
+        label
+        for column, label in (
+            ("credit_card_amount", "신용카드"),
+            ("cash_receipt_amount", "현금영수증"),
+            ("tax_invoice_amount", "세금계산서"),
+            ("other_amount", "기타"),
+        )
+        if row[column] != 0
+    ]
+    if len(payment_types) > 1:
+        return "복합결제"
+    return payment_types[0] if payment_types else "매출 없음"
+
 
 @app.get("/")
 def dashboard(request: Request):
@@ -713,21 +759,21 @@ def dashboard(request: Request):
             """
             SELECT
                 COUNT(*) AS record_count,
-                COALESCE(SUM(quantity), 0) AS quantity,
+                COALESCE(SUM({quantity_expression}), 0) AS quantity,
                 COALESCE(
-                    SUM(
-                        credit_card_amount
-                        + cash_receipt_amount
-                        + tax_invoice_amount
-                        + other_amount
-                    ),
+                    SUM(CASE WHEN {eligibility}
+                        THEN {sales_expression} ELSE 0 END),
                     0
                 ) AS sales_amount,
                 COALESCE(SUM(settlement_amount), 0) AS settlement_amount,
                 COALESCE(SUM(fee_amount_1 + fee_amount_2), 0) AS fee_amount
             FROM sales_records
             WHERE is_active = 1 AND batch_is_active = 1
-            """
+            """.format(
+                quantity_expression=SALE_QUANTITY_EXPRESSION,
+                eligibility=SALE_TOTAL_ELIGIBILITY,
+                sales_expression=SALES_EXPRESSION,
+            )
         ).fetchone()
 
         platforms = connection.execute(
@@ -735,14 +781,10 @@ def dashboard(request: Request):
             SELECT
                 platform,
                 COUNT(*) AS record_count,
-                COALESCE(SUM(quantity), 0) AS quantity,
+                COALESCE(SUM({quantity_expression}), 0) AS quantity,
                 COALESCE(
-                    SUM(
-                        credit_card_amount
-                        + cash_receipt_amount
-                        + tax_invoice_amount
-                        + other_amount
-                    ),
+                    SUM(CASE WHEN {eligibility}
+                        THEN {sales_expression} ELSE 0 END),
                     0
                 ) AS sales_amount,
                 COALESCE(SUM(settlement_amount), 0) AS settlement_amount
@@ -750,7 +792,11 @@ def dashboard(request: Request):
             WHERE is_active = 1 AND batch_is_active = 1
             GROUP BY platform
             ORDER BY sales_amount DESC
-            """
+            """.format(
+                quantity_expression=SALE_QUANTITY_EXPRESSION,
+                eligibility=SALE_TOTAL_ELIGIBILITY,
+                sales_expression=SALES_EXPRESSION,
+            )
         ).fetchall()
 
         monthly_sales = connection.execute(
@@ -758,19 +804,18 @@ def dashboard(request: Request):
             SELECT
                 SUBSTR(tax_date, 1, 7) AS period,
                 COALESCE(
-                    SUM(
-                        credit_card_amount
-                        + cash_receipt_amount
-                        + tax_invoice_amount
-                        + other_amount
-                    ),
+                    SUM(CASE WHEN {eligibility}
+                        THEN {sales_expression} ELSE 0 END),
                     0
                 ) AS sales_amount
             FROM sales_records
             WHERE tax_date IS NOT NULL AND is_active = 1 AND batch_is_active = 1
             GROUP BY period
             ORDER BY period
-            """
+            """.format(
+                eligibility=SALE_TOTAL_ELIGIBILITY,
+                sales_expression=SALES_EXPRESSION,
+            )
         ).fetchall()
 
     maximum_monthly_sales = max(
@@ -927,6 +972,20 @@ def sales_list(
             f"SELECT COUNT(*) FROM sales_records {where_clause}",
             parameters,
         ).fetchone()[0]
+        summary = connection.execute(
+            f"""
+            SELECT
+                COALESCE(SUM({SALE_QUANTITY_EXPRESSION}), 0) AS quantity,
+                COALESCE(SUM(CASE WHEN {SALE_TOTAL_ELIGIBILITY} THEN {SALES_EXPRESSION} ELSE 0 END), 0) AS sales_amount,
+                COALESCE(SUM(CASE WHEN {SALE_TOTAL_ELIGIBILITY} THEN credit_card_amount ELSE 0 END), 0) AS credit_card_amount,
+                COALESCE(SUM(CASE WHEN {SALE_TOTAL_ELIGIBILITY} THEN cash_receipt_amount ELSE 0 END), 0) AS cash_receipt_amount,
+                COALESCE(SUM(CASE WHEN {SALE_TOTAL_ELIGIBILITY} THEN tax_invoice_amount ELSE 0 END), 0) AS tax_invoice_amount,
+                COALESCE(SUM(CASE WHEN {SALE_TOTAL_ELIGIBILITY} THEN other_amount ELSE 0 END), 0) AS other_amount
+            FROM sales_records
+            {where_clause}
+            """,
+            parameters,
+        ).fetchone()
         page_size = 50
         total_pages = max(1, math.ceil(total_count / page_size))
         current_page = min(page, total_pages)
@@ -941,6 +1000,7 @@ def sales_list(
                     + tax_invoice_amount
                     + other_amount
                 ) AS sales_amount
+                , {PAYMENT_TYPE_EXPRESSION} AS payment_type
             FROM sales_records
             {where_clause}
             ORDER BY {order_clause}
@@ -977,6 +1037,7 @@ def sales_list(
             "current_page": current_page,
             "total_pages": total_pages,
             "total_count": total_count,
+            "summary": summary,
         },
     )
 
@@ -1138,7 +1199,7 @@ def export_sales(
     worksheet.title = "통합 판매내역"
     headers = [
         "플랫폼", "주문번호", "매출월", "신고일", "상품유형",
-        "상품/사이즈", "수량", "신용카드", "현금영수증",
+        "상품/사이즈", "수량", "매출 구분", "신용카드", "현금영수증",
         "세금계산서", "기타", "수수료1", "수수료2",
         "정산금액", "구매자", "비고",
     ]
@@ -1153,7 +1214,7 @@ def export_sales(
             [
                 row["platform"], row["order_number"], row["sales_month"],
                 excel_date_value(row["tax_date"]), row["item_type"], row["product_option"],
-                row["quantity"], row["credit_card_amount"],
+                row["quantity"], payment_type_for_row(row), row["credit_card_amount"],
                 row["cash_receipt_amount"], row["tax_invoice_amount"],
                 row["other_amount"], row["fee_amount_1"],
                 row["fee_amount_2"], row["settlement_amount"],

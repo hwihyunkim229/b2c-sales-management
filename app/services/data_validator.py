@@ -77,8 +77,13 @@ def _load_source_records(
                     worksheet.iter_rows(min_row=4, values_only=True), start=4
                 ):
                     order_number = _text(row[1] if len(row) > 1 else None)
+                    product_option = _text(row[4] if len(row) > 4 else None)
+                    normalized_product = product_option.replace(" ", "").lower()
 
-                    if not order_number:
+                    if not order_number and not (
+                        "배송비" in normalized_product
+                        or "오므론" in normalized_product
+                    ):
                         continue
 
                     fingerprint = _fingerprint(platform, source_row, row)
@@ -130,6 +135,7 @@ def build_validation_report(
             order_number,
             sales_month,
             tax_date,
+            item_type,
             product_option,
             quantity,
             buyer_name,
@@ -137,6 +143,10 @@ def build_validation_report(
             is_active,
             batch_is_active,
             row_fingerprint,
+            credit_card_amount,
+            cash_receipt_amount,
+            tax_invoice_amount,
+            other_amount,
             credit_card_amount
                 + cash_receipt_amount
                 + tax_invoice_amount
@@ -207,6 +217,9 @@ def build_validation_report(
 
     for row in active_rows:
         fields = []
+
+        if not row["order_number"]:
+            fields.append("주문번호")
 
         if row["sales_month"] is None:
             fields.append("매출월")
@@ -286,6 +299,26 @@ def build_validation_report(
         + len(zero_amount_rows)
         + len(review_issue_rows)
     )
+    summary_rows = [
+        row for row in active_rows
+        if "배송비" not in (row["item_type"] or "")
+        and "오므론" not in (row["item_type"] or "")
+        and "배송비" not in (row["product_option"] or "")
+        and "오므론" not in (row["product_option"] or "")
+    ]
+    summary = {
+        "quantity": sum(
+            (row["quantity"] or 0)
+            for row in summary_rows
+            if row["item_type"] == "상품"
+            and abs(row["sales_amount"] or 0) > 0.001
+        ),
+        "sales_amount": sum((row["sales_amount"] or 0) for row in summary_rows),
+        "credit_card_amount": sum((row["credit_card_amount"] or 0) for row in summary_rows),
+        "cash_receipt_amount": sum((row["cash_receipt_amount"] or 0) for row in summary_rows),
+        "tax_invoice_amount": sum((row["tax_invoice_amount"] or 0) for row in summary_rows),
+        "other_amount": sum((row["other_amount"] or 0) for row in summary_rows),
+    }
 
     return {
         "source_file_count": source_file_count,
@@ -297,6 +330,7 @@ def build_validation_report(
         ),
         "mismatch_count": mismatch_count,
         "issue_count": issue_count,
+        "summary": summary,
         "reconciliation": reconciliation,
         "missing_source_rows": missing_source_rows,
         "missing_fields": missing_fields,

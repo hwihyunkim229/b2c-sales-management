@@ -11,6 +11,16 @@
     </div>
 </header>
 
+<section class="metric-grid metric-grid-six">
+    <article class="metric-card"><span>총 판매수량</span><strong>{{ "{:,.0f}".format(summary.quantity) }}개</strong></article>
+    <article class="metric-card"><span>총매출</span><strong>{{ "{:,.0f}".format(summary.sales_amount) }}원</strong></article>
+    <article class="metric-card"><span>신용카드</span><strong>{{ "{:,.0f}".format(summary.credit_card_amount) }}원</strong></article>
+    <article class="metric-card"><span>현금영수증</span><strong>{{ "{:,.0f}".format(summary.cash_receipt_amount) }}원</strong></article>
+    <article class="metric-card"><span>세금계산서</span><strong>{{ "{:,.0f}".format(summary.tax_invoice_amount) }}원</strong></article>
+    <article class="metric-card"><span>기타</span><strong>{{ "{:,.0f}".format(summary.other_amount) }}원</strong></article>
+</section>
+<p class="summary-note">판매수량은 선수금을 포함하고 오므론·배송비·취소·수수료·0원 상품을 제외합니다. 매출은 선수금과 취소금액을 반영하며 오므론·배송비만 제외합니다.</p>
+
 <section class="panel">
     <form class="filter-bar" method="get" autocomplete="off">
         <select name="platform">
@@ -42,8 +52,8 @@
         </select>
         <select name="item_type">
             <option value="">전체 유형</option>
-            {% for value in ['상품', '부가상품', '배송비', '취소', '수수료'] %}
-            <option value="{{ value }}" {% if selected_item_type == value %}selected{% endif %}>{{ value }}</option>
+            {% for value, label in [('상품', '상품'), ('부가상품', '오므론'), ('배송비', '배송비'), ('취소', '취소'), ('수수료', '수수료')] %}
+            <option value="{{ value }}" {% if selected_item_type == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
         </select>
         <label class="filter-checkbox">
@@ -79,6 +89,7 @@
                     <th>상품/사이즈</th>
                     <th class="number">수량</th>
                     <th class="number">매출</th>
+                    <th>매출 구분</th>
                     <th class="number">수수료</th>
                     <th class="number">정산금액</th>
                     <th>구매자</th>
@@ -94,6 +105,7 @@
                     <td>{{ row.product_option or '-' }}</td>
                     <td class="number">{{ "{:,.0f}".format(row.quantity) }}</td>
                     <td class="number">{{ "{:,.0f}".format(row.sales_amount) }}원</td>
+                    <td>{{ row.payment_type }}</td>
                     <td class="number">
                         {{ "{:,.0f}".format(row.fee_amount_1 + row.fee_amount_2) }}원
                     </td>
@@ -103,7 +115,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td class="empty" colspan="10">조건에 맞는 판매내역이 없습니다.</td>
+                    <td class="empty" colspan="11">조건에 맞는 판매내역이 없습니다.</td>
                 </tr>
                 {% endfor %}
             </tbody>

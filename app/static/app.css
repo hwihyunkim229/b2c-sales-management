@@ -299,6 +299,16 @@ a {
     grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
+.metric-grid-six {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.summary-note {
+    margin: -10px 0 20px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
 .metric-success {
     border-color: #a6dbc7;
     background: #f3faf7;
