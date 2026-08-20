@@ -184,6 +184,253 @@ def _record_issue(
         ),
     )
 
+
+INTEGRATED_SALES_SHEET = "통합 판매내역"
+INTEGRATED_SALES_HEADERS = {
+    "플랫폼", "주문번호", "매출월", "신고일", "제품유형",
+    "제품코드", "수량", "신용카드", "현금영수증", "세금계산서",
+    "기타", "수수료1", "수수료2", "정산금액", "구매자",
+    "제품사이즈", "비고",
+}
+
+
+def _normalized_header(value: object) -> str:
+    return re.sub(r"\s+", "", _text(value))
+
+
+def _integrated_sales_sheet(workbook):
+    if INTEGRATED_SALES_SHEET not in workbook.sheetnames:
+        return None
+
+    worksheet = workbook[INTEGRATED_SALES_SHEET]
+    headers = {
+        _normalized_header(cell.value): index
+        for index, cell in enumerate(worksheet[1])
+        if _normalized_header(cell.value)
+    }
+    if not INTEGRATED_SALES_HEADERS.issubset(headers):
+        return None
+    return worksheet, headers
+
+
+def _integrated_item_type(value: object, product_option: str, quantity: float) -> str:
+    normalized = _normalized_header(value)
+    mapped = {
+        "제품": "상품",
+        "상품": "상품",
+        "부가제품": "부가상품",
+        "부가상품": "부가상품",
+        "배송비": "배송비",
+        "수수료": "수수료",
+        "취소": "취소",
+        "본품취소": "취소",
+    }.get(normalized)
+    return mapped or _item_type(product_option, quantity)
+
+
+def _integrated_fingerprint(values: tuple[object, ...]) -> str:
+    payload = "integrated_sales|" + "|".join(_text(value) for value in values)
+    return sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _normalized_product_option(value: object) -> str:
+    original = _text(value)
+    numeric_match = re.fullmatch(r"(\d+)\.0+", original)
+    if numeric_match:
+        return f"rev1_{numeric_match.group(1)}"
+
+    normalized = original.lower().replace(" ", "").replace(".", "")
+    normalized = normalized.replace("-", "_")
+    if re.fullmatch(r"\d+", normalized):
+        return f"rev1_{normalized}"
+    revision_match = re.fullmatch(r"rev([12])_?(\d+)", normalized)
+    if revision_match:
+        return f"rev{revision_match.group(1)}_{revision_match.group(2)}"
+    return normalized
+
+
+def _has_matching_active_sales_record(connection, values: dict[str, object]) -> bool:
+    candidates = connection.execute(
+        """
+        SELECT product_option
+        FROM sales_records
+        WHERE is_active = 1 AND batch_is_active = 1
+          AND platform = ? AND order_number = ?
+          AND COALESCE(sales_month, 0) = COALESCE(?, 0)
+          AND COALESCE(tax_date, '') = COALESCE(?, '')
+          AND COALESCE(quantity, 0) = COALESCE(?, 0)
+          AND COALESCE(credit_card_amount, 0) = COALESCE(?, 0)
+          AND COALESCE(cash_receipt_amount, 0) = COALESCE(?, 0)
+          AND COALESCE(tax_invoice_amount, 0) = COALESCE(?, 0)
+          AND COALESCE(other_amount, 0) = COALESCE(?, 0)
+          AND COALESCE(fee_amount_1, 0) = COALESCE(?, 0)
+          AND COALESCE(fee_amount_2, 0) = COALESCE(?, 0)
+          AND COALESCE(settlement_amount, 0) = COALESCE(?, 0)
+        """,
+        (
+            values["platform"], values["order_number"], values["sales_month"],
+            values["tax_date"], values["quantity"],
+            values["credit_card_amount"], values["cash_receipt_amount"],
+            values["tax_invoice_amount"], values["other_amount"],
+            values["fee_amount_1"], values["fee_amount_2"],
+            values["settlement_amount"],
+        ),
+    ).fetchall()
+    normalized_option = _normalized_product_option(values["product_option"])
+    return any(
+        _normalized_product_option(candidate["product_option"]) == normalized_option
+        for candidate in candidates
+    )
+
+
+def _import_integrated_sales_sheet(
+    connection: sqlite3.Connection,
+    worksheet,
+    headers: dict[str, int],
+    batch_id: int,
+) -> ImportResult:
+    result = ImportResult()
+
+    def value(row: tuple[object, ...], header: str) -> object:
+        index = headers[header]
+        return row[index] if index < len(row) else None
+
+    for source_row, row in enumerate(
+        worksheet.iter_rows(min_row=2, values_only=True),
+        start=2,
+    ):
+        if not any(cell not in (None, "") for cell in row):
+            continue
+
+        platform = _text(value(row, "플랫폼"))
+        order_number = _text(value(row, "주문번호"))
+        product_option = _text(value(row, "제품사이즈"))
+        quantity = _number(value(row, "수량"))
+        parsed_date = _date_value(value(row, "신고일"))
+        parsed_month = _sales_month(value(row, "매출월"), value(row, "신고일"))
+        record = {
+            "platform": platform,
+            "order_number": order_number,
+            "sales_month": parsed_month,
+            "tax_date": parsed_date,
+            "item_type": _integrated_item_type(
+                value(row, "제품유형"), product_option, quantity
+            ),
+            "product_option": product_option,
+            "quantity": quantity,
+            "credit_card_amount": _number(value(row, "신용카드")),
+            "cash_receipt_amount": _number(value(row, "현금영수증")),
+            "tax_invoice_amount": _number(value(row, "세금계산서")),
+            "other_amount": _number(value(row, "기타")),
+            "fee_amount_1": _number(value(row, "수수료1")),
+            "fee_amount_2": _number(value(row, "수수료2")),
+            "settlement_amount": _number(value(row, "정산금액")),
+            "buyer_name": _text(value(row, "구매자")),
+            "note": _text(value(row, "비고")),
+        }
+        result.total_rows += 1
+
+        issues = []
+        if not platform:
+            issues.append(("platform", "missing_platform", "플랫폼 값이 없습니다.", "error"))
+        if not order_number:
+            issues.append(("order_number", "missing_order_number", "주문번호가 없습니다.", "error"))
+        if parsed_month is None:
+            issues.append(("sales_month", "missing_sales_month", "매출월을 확인할 수 없습니다.", "warning"))
+        if parsed_date is None:
+            issues.append(("tax_date", "missing_tax_date", "신고일이 없습니다.", "warning"))
+        if not product_option:
+            issues.append(("product_option", "missing_product_option", "제품사이즈 값이 없습니다.", "warning"))
+        if value(row, "수량") in (None, ""):
+            issues.append(("quantity", "missing_quantity", "판매수량이 없습니다.", "warning"))
+
+        for field_name, issue_code, message, severity in issues:
+            _record_issue(
+                connection, batch_id, platform, source_row, order_number,
+                field_name, issue_code, message, severity,
+            )
+            result.issue_rows += 1
+
+        sales_amount = (
+            record["credit_card_amount"] + record["cash_receipt_amount"]
+            + record["tax_invoice_amount"] + record["other_amount"]
+        )
+        preview = {
+            "status": "blocked" if any(issue[3] == "error" for issue in issues) else ("issue" if issues else "new"),
+            "platform": platform,
+            "source_row": source_row,
+            "order_number": order_number,
+            "tax_date": parsed_date,
+            "product_option": product_option,
+            "quantity": quantity,
+            "sales_amount": sales_amount,
+            "buyer_name": record["buyer_name"],
+        }
+
+        if any(issue[3] == "error" for issue in issues):
+            result.preview_rows.append(preview)
+            continue
+
+        if _has_matching_active_sales_record(connection, record):
+            result.duplicate_rows += 1
+            preview["status"] = "duplicate"
+            result.preview_rows.append(preview)
+            continue
+
+        fingerprint_values = (
+            platform, order_number, parsed_month, parsed_date,
+            record["item_type"], product_option, quantity,
+            record["credit_card_amount"], record["cash_receipt_amount"],
+            record["tax_invoice_amount"], record["other_amount"],
+            record["fee_amount_1"], record["fee_amount_2"],
+            record["settlement_amount"], record["buyer_name"], record["note"],
+        )
+        stored_fingerprint = _active_unique_fingerprint(
+            connection, "sales_records",
+            _integrated_fingerprint(fingerprint_values), batch_id,
+        )
+        if stored_fingerprint is None:
+            result.duplicate_rows += 1
+            preview["status"] = "duplicate"
+            result.preview_rows.append(preview)
+            continue
+
+        insert_result = connection.execute(
+            """
+            INSERT INTO sales_records (
+                import_batch_id, platform, source_row, order_number,
+                sales_month, tax_date, item_type, product_option, quantity,
+                credit_card_amount, cash_receipt_amount, tax_invoice_amount,
+                other_amount, fee_amount_1, fee_amount_2, settlement_amount,
+                advance_payment, buyer_name, note, review_status,
+                row_fingerprint
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?
+            )
+            ON CONFLICT (row_fingerprint) DO NOTHING
+            RETURNING id
+            """,
+            (
+                batch_id, platform, source_row, order_number, parsed_month,
+                parsed_date, record["item_type"], product_option or None,
+                quantity, record["credit_card_amount"],
+                record["cash_receipt_amount"], record["tax_invoice_amount"],
+                record["other_amount"], record["fee_amount_1"],
+                record["fee_amount_2"], record["settlement_amount"],
+                record["buyer_name"] or None, record["note"] or None,
+                "issue" if issues else "normal", stored_fingerprint,
+            ),
+        )
+        if insert_result.fetchone() is not None:
+            result.imported_rows += 1
+            result.preview_rows.append(preview)
+        else:
+            result.duplicate_rows += 1
+            preview["status"] = "duplicate"
+            result.preview_rows.append(preview)
+
+    return result
+
 def import_workbook(
     connection: sqlite3.Connection,
     file_path: Path,
@@ -195,6 +442,15 @@ def import_workbook(
         read_only=True,
     )
     result = ImportResult()
+
+    integrated_sheet = _integrated_sales_sheet(workbook)
+    if integrated_sheet is not None:
+        worksheet, headers = integrated_sheet
+        result = _import_integrated_sales_sheet(
+            connection, worksheet, headers, batch_id
+        )
+        workbook.close()
+        return result
 
     for platform in SUPPORTED_PLATFORMS:
         if platform not in workbook.sheetnames:
