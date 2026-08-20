@@ -299,7 +299,10 @@ def _import_integrated_sales_sheet(
         worksheet.iter_rows(min_row=2, values_only=True),
         start=2,
     ):
-        if not any(cell not in (None, "") for cell in row):
+        if not any(
+            value(row, header) not in (None, "")
+            for header in INTEGRATED_SALES_HEADERS
+        ):
             continue
 
         platform = _text(value(row, "플랫폼"))
