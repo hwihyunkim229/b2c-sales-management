@@ -26,7 +26,7 @@ def main() -> None:
         "0원 거래", "확인 필요", "중복 의심",
     ])
     check("/exports/reports.xlsx", [
-        "월별 매출", "상품 사이즈", "부가세 기초자료",
+        "월별 매출", "제품 사이즈", "부가세 기초자료",
         "홈택스 대사", "회계처리 집계",
     ])
     check("/exports/hometax.xlsx?quarter=3", ["홈택스 플랫폼 지정"])

@@ -16,8 +16,8 @@
 <section class="panel detail-grid">
     {% for label, value in [
         ('플랫폼', record.platform), ('매출월', record.sales_month),
-        ('세금신고일', record.tax_date | year_month), ('상품유형', record.item_type),
-        ('상품/사이즈', record.product_option),
+        ('세금신고일', record.tax_date | year_month), ('제품유형', record.item_type | product_type),
+        ('제품사이즈', record.product_option | product_size), ('제품코드', record.product_option | product_code),
         ('수량', "{:,.0f}".format(record.quantity or 0)),
         ('신용카드', "{:,.0f}원".format(record.credit_card_amount or 0)),
         ('현금영수증', "{:,.0f}원".format(record.cash_receipt_amount or 0)),

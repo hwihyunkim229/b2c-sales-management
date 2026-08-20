@@ -322,7 +322,7 @@ def import_workbook(
                     (
                         "product_option",
                         "missing_product_option",
-                        "상품 또는 사이즈 값이 없습니다.",
+                        "제품 또는 사이즈 값이 없습니다.",
                     )
                 )
 

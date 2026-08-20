@@ -38,7 +38,7 @@
         <input
             name="keyword"
             value="{{ keyword }}"
-            placeholder="주문번호, 구매자, 상품 검색"
+            placeholder="주문번호, 구매자, 제품 검색"
             autocomplete="off"
             autocorrect="off"
             autocapitalize="off"
@@ -52,7 +52,7 @@
         </select>
         <select name="item_type">
             <option value="">전체 유형</option>
-            {% for value, label in [('상품', '상품'), ('부가상품', '오므론'), ('배송비', '배송비'), ('취소', '취소'), ('수수료', '수수료')] %}
+            {% for value, label in [('상품', '제품'), ('부가상품', '부가제품'), ('배송비', '배송비'), ('취소', '취소'), ('수수료', '수수료')] %}
             <option value="{{ value }}" {% if selected_item_type == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
         </select>
@@ -63,7 +63,7 @@
         <select name="sort_by" aria-label="정렬 기준">
             {% for value, label in [
                 ('tax_date', '신고일'), ('platform', '플랫폼'),
-                ('order_number', '주문번호'), ('product_option', '상품/사이즈'),
+                ('order_number', '주문번호'), ('product_option', '제품사이즈'),
                 ('quantity', '수량'), ('sales_amount', '매출'),
                 ('fee_amount', '수수료'), ('settlement_amount', '정산금액'),
                 ('buyer_name', '구매자')
@@ -87,20 +87,19 @@
                     <th>주문번호</th>
                     <th>매출월</th>
                     <th>신고일</th>
-                    <th>상품유형</th>
-                    <th>상품/사이즈</th>
+                    <th>제품유형</th>
+                    <th>제품코드</th>
                     <th class="number">수량</th>
                     <th class="number">신용카드</th>
                     <th class="number">현금영수증</th>
                     <th class="number">세금계산서</th>
                     <th class="number">기타</th>
-                    <th class="number">총매출</th>
                     <th class="number">수수료1</th>
                     <th class="number">수수료2</th>
                     <th class="number">정산금액</th>
                     <th>구매자</th>
+                    <th>제품사이즈</th>
                     <th>비고</th>
-                    <th>검수상태</th>
                 </tr>
             </thead>
             <tbody>
@@ -110,24 +109,23 @@
                     <td><a class="detail-link" href="/sales/{{ row.id }}">{{ row.order_number }}</a></td>
                     <td>{{ row.sales_month }}월</td>
                     <td>{{ row.tax_date | date_only }}</td>
-                    <td>{{ {'부가상품':'오므론'}.get(row.item_type, row.item_type) }}</td>
-                    <td>{{ row.product_option or '-' }}</td>
+                    <td>{{ row.item_type | product_type }}</td>
+                    <td>{{ row.product_option | product_code }}</td>
                     <td class="number">{{ "{:,.0f}".format(row.quantity) }}</td>
                     <td class="number">{{ "{:,.0f}".format(row.credit_card_amount) }}원</td>
                     <td class="number">{{ "{:,.0f}".format(row.cash_receipt_amount) }}원</td>
                     <td class="number">{{ "{:,.0f}".format(row.tax_invoice_amount) }}원</td>
                     <td class="number">{{ "{:,.0f}".format(row.other_amount) }}원</td>
-                    <td class="number"><strong>{{ "{:,.0f}".format(row.sales_amount) }}원</strong></td>
                     <td class="number">{{ "{:,.0f}".format(row.fee_amount_1) }}원</td>
                     <td class="number">{{ "{:,.0f}".format(row.fee_amount_2) }}원</td>
                     <td class="number">{{ "{:,.0f}".format(row.settlement_amount) }}원</td>
                     <td>{{ row.buyer_name or '-' }}</td>
+                    <td>{{ row.product_option | product_size }}</td>
                     <td>{{ row.note or '-' }}</td>
-                    <td><span class="review-status review-{{ row.review_status }}">{{ {'normal':'정상','reviewed':'확인완료','issue':'확인필요'}.get(row.review_status, row.review_status) }}</span></td>
                 </tr>
                 {% else %}
                 <tr>
-                    <td class="empty" colspan="18">조건에 맞는 판매내역이 없습니다.</td>
+                    <td class="empty" colspan="17">조건에 맞는 판매내역이 없습니다.</td>
                 </tr>
                 {% endfor %}
             </tbody>

@@ -228,7 +228,7 @@ def build_validation_report(
             fields.append("일자")
 
         if not row["product_option"]:
-            fields.append("상품/사이즈")
+            fields.append("제품사이즈")
 
         if row["quantity"] is None:
             fields.append("수량")

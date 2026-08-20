@@ -108,7 +108,7 @@
 
 {% set sections = [
     ('원본 누락', '원본에는 있지만 웹에 반영되지 않은 행입니다.', report.missing_source_rows, 'source'),
-    ('필수값 누락', '매출월·일자·상품·수량 중 비어 있는 항목입니다.', report.missing_fields, 'missing'),
+    ('필수값 누락', '매출월·일자·제품·수량 중 비어 있는 항목입니다.', report.missing_fields, 'missing'),
     ('0원 거래', '매출 합계가 0원인 판매 행입니다. 정상 행인지 확인해 주세요.', report.zero_amount_rows, 'record'),
     ('검수 확인 필요', '판매내역에서 확인 필요로 표시한 행입니다.', report.review_issue_rows, 'record')
 ] %}
@@ -130,7 +130,7 @@
                     <th>원본 행</th>
                     <th>주문번호</th>
                     {% if kind == 'missing' %}<th>누락 항목</th>{% endif %}
-                    {% if kind != 'source' %}<th>상품/사이즈</th>{% endif %}
+                    {% if kind != 'source' %}<th>제품사이즈</th>{% endif %}
                     <th>수량</th>
                     <th>매출</th>
                     {% if kind != 'source' %}<th>보기</th>{% endif %}
@@ -143,7 +143,7 @@
                     <td>{{ row.source_row }}</td>
                     <td>{{ row.order_number }}</td>
                     {% if kind == 'missing' %}<td class="validation-difference">{{ row.issue_detail }}</td>{% endif %}
-                    {% if kind != 'source' %}<td>{{ row.product_option or '-' }}</td>{% endif %}
+                    {% if kind != 'source' %}<td>{{ row.product_option | product_size }}</td>{% endif %}
                     <td>{{ "{:,.0f}".format(row.quantity or 0) }}</td>
                     <td>{{ "{:,.0f}".format(row.sales_amount or 0) }}원</td>
                     {% if kind != 'source' %}<td><a class="detail-link" href="/sales/{{ row.id }}">상세</a></td>{% endif %}
@@ -169,7 +169,7 @@
         <table data-sortable-table>
             <thead>
                 <tr>
-                    <th>플랫폼</th><th>주문번호</th><th>구매자</th><th>상품/사이즈</th>
+                    <th>플랫폼</th><th>주문번호</th><th>구매자</th><th>제품사이즈</th>
                     <th>수량</th><th>매출</th><th>행 수</th><th>원본 행</th><th>보기</th>
                 </tr>
             </thead>
@@ -177,7 +177,7 @@
                 {% for row in report.duplicate_suspects %}
                 <tr>
                     <td>{{ row.platform }}</td><td>{{ row.order_number }}</td><td>{{ row.buyer_name or '-' }}</td>
-                    <td>{{ row.product_option or '-' }}</td><td>{{ "{:,.0f}".format(row.quantity or 0) }}</td>
+                    <td>{{ row.product_option | product_size }}</td><td>{{ "{:,.0f}".format(row.quantity or 0) }}</td>
                     <td>{{ "{:,.0f}".format(row.sales_amount or 0) }}원</td><td>{{ row.record_count }}</td>
                     <td>{{ row.source_rows }}</td><td><a class="detail-link" href="/sales/{{ row.record_id }}">상세</a></td>
                 </tr>

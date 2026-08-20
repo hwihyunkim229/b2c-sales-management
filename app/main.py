@@ -729,58 +729,83 @@ SALE_QUANTITY_EXPRESSION = """
     END
 """
 
-PAYMENT_TYPE_EXPRESSION = """
-    CASE
-        WHEN (
-            CASE WHEN credit_card_amount != 0 THEN 1 ELSE 0 END
-          + CASE WHEN cash_receipt_amount != 0 THEN 1 ELSE 0 END
-          + CASE WHEN tax_invoice_amount != 0 THEN 1 ELSE 0 END
-          + CASE WHEN other_amount != 0 THEN 1 ELSE 0 END
-        ) > 1 THEN '복합결제'
-        WHEN credit_card_amount != 0 THEN '신용카드'
-        WHEN cash_receipt_amount != 0 THEN '현금영수증'
-        WHEN tax_invoice_amount != 0 THEN '세금계산서'
-        WHEN other_amount != 0 THEN '기타'
-        ELSE '매출 없음'
-    END
-"""
+PRODUCT_CODES = {
+    "rev1_7": "SL-P-PD-00033",
+    "rev1_8": "SL-P-PD-00034",
+    "rev1_9": "SL-P-PD-00035",
+    "rev1_10": "SL-P-PD-00036",
+    "rev1_11": "SL-P-PD-00037",
+    "rev1_12": "SL-P-PD-00038",
+    "rev1_13": "SL-P-PD-00039",
+    "rev2_7": "SL-P-PD-00054",
+    "rev2_8": "SL-P-PD-00055",
+    "rev2_9": "SL-P-PD-00056",
+    "rev2_10": "SL-P-PD-00057",
+    "rev2_11": "SL-P-PD-00058",
+    "rev2_12": "SL-P-PD-00059",
+    "rev2_13": "SL-P-PD-00060",
+}
 
 
-def payment_type_for_row(row) -> str:
-    payment_types = [
-        label
-        for column, label in (
-            ("credit_card_amount", "신용카드"),
-            ("cash_receipt_amount", "현금영수증"),
-            ("tax_invoice_amount", "세금계산서"),
-            ("other_amount", "기타"),
-        )
-        if row[column] != 0
-    ]
-    if len(payment_types) > 1:
-        return "복합결제"
-    return payment_types[0] if payment_types else "매출 없음"
+def normalized_size_key(value: object) -> str:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        numeric_value = float(value)
+        if numeric_value.is_integer():
+            return f"rev1_{int(numeric_value)}"
+
+    label = str(value or "").strip().lower().replace(" ", "").replace(".", "")
+    label = label.replace("-", "_")
+    numeric_match = re.fullmatch(r"(\d+)\.0+", str(value or "").strip())
+    if numeric_match:
+        return f"rev1_{numeric_match.group(1)}"
+    if re.fullmatch(r"\d+", label):
+        return f"rev1_{label}"
+    match = re.fullmatch(r"rev([12])_?(\d+)", label)
+    if match:
+        return f"rev{match.group(1)}_{match.group(2)}"
+    return label
+
+
+def product_code_for_size(value: object) -> str:
+    return PRODUCT_CODES.get(normalized_size_key(value), "-")
+
+
+def product_type_label(value: object) -> str:
+    return {
+        "상품": "제품",
+        "부가상품": "부가제품",
+    }.get(str(value or ""), str(value or "-").replace("상품", "제품"))
 
 
 def dashboard_size_label(value: object) -> str:
     label = str(value or "미지정").strip()
-    rev2_match = re.fullmatch(r"rev\.?2[_\s-]*(.+)", label, re.IGNORECASE)
+    normalized_label = normalized_size_key(value)
+    rev1_match = re.fullmatch(r"rev1_(\d+)", normalized_label)
+    if rev1_match:
+        return f"Rev.1_{rev1_match.group(1)}"
+    rev2_match = re.fullmatch(r"rev2_(\d+)", normalized_label)
     if rev2_match:
         return f"Rev.2_{rev2_match.group(1)}"
-    if re.fullmatch(r"\d+(?:\.\d+)?", label):
-        return f"Rev.1_{label}"
     return label
 
 
 def dashboard_size_sort_key(value: object) -> tuple[object, ...]:
     label = str(value or "미지정").strip()
-    rev2_match = re.fullmatch(r"rev\.?2[_\s-]*(.+)", label, re.IGNORECASE)
+    normalized_label = normalized_size_key(value)
+    rev1_match = re.fullmatch(r"rev1_(\d+)", normalized_label)
+    if rev1_match:
+        size = rev1_match.group(1)
+        return (0, float(size), size)
+    rev2_match = re.fullmatch(r"rev2_(\d+)", normalized_label)
     if rev2_match:
         size = rev2_match.group(1)
-        return (1, float(size) if re.fullmatch(r"\d+(?:\.\d+)?", size) else math.inf, size)
-    if re.fullmatch(r"\d+(?:\.\d+)?", label):
-        return (0, float(label), label)
+        return (1, float(size), size)
     return (2, math.inf, label)
+
+
+templates.env.filters["product_code"] = product_code_for_size
+templates.env.filters["product_type"] = product_type_label
+templates.env.filters["product_size"] = dashboard_size_label
 
 
 @app.get("/")
@@ -977,17 +1002,17 @@ def export_validation():
         ["플랫폼", "원본 행", "주문번호", "수량", "매출"],
         [[r["platform"], r["source_row"], r["order_number"], r["quantity"], r["sales_amount"]] for r in report["missing_source_rows"]], currency_columns=(5,))
     add_export_sheet(workbook, "필수값 누락",
-        ["플랫폼", "원본 행", "주문번호", "누락 항목", "상품/사이즈", "수량", "매출"],
-        [[r["platform"], r["source_row"], r["order_number"], r["issue_detail"], r["product_option"], r["quantity"], r["sales_amount"]] for r in report["missing_fields"]], currency_columns=(7,))
+        ["플랫폼", "원본 행", "주문번호", "누락 항목", "제품사이즈", "수량", "매출"],
+        [[r["platform"], r["source_row"], r["order_number"], r["issue_detail"], dashboard_size_label(r["product_option"]), r["quantity"], r["sales_amount"]] for r in report["missing_fields"]], currency_columns=(7,))
     add_export_sheet(workbook, "0원 거래",
-        ["플랫폼", "원본 행", "주문번호", "상품/사이즈", "수량", "매출"],
-        [[r["platform"], r["source_row"], r["order_number"], r["product_option"], r["quantity"], r["sales_amount"]] for r in report["zero_amount_rows"]], currency_columns=(6,))
+        ["플랫폼", "원본 행", "주문번호", "제품사이즈", "수량", "매출"],
+        [[r["platform"], r["source_row"], r["order_number"], dashboard_size_label(r["product_option"]), r["quantity"], r["sales_amount"]] for r in report["zero_amount_rows"]], currency_columns=(6,))
     add_export_sheet(workbook, "확인 필요",
-        ["플랫폼", "원본 행", "주문번호", "상품/사이즈", "수량", "매출"],
-        [[r["platform"], r["source_row"], r["order_number"], r["product_option"], r["quantity"], r["sales_amount"]] for r in report["review_issue_rows"]], currency_columns=(6,))
+        ["플랫폼", "원본 행", "주문번호", "제품사이즈", "수량", "매출"],
+        [[r["platform"], r["source_row"], r["order_number"], dashboard_size_label(r["product_option"]), r["quantity"], r["sales_amount"]] for r in report["review_issue_rows"]], currency_columns=(6,))
     add_export_sheet(workbook, "중복 의심",
-        ["플랫폼", "주문번호", "구매자", "상품/사이즈", "수량", "매출", "행 수", "원본 행"],
-        [[r["platform"], r["order_number"], r["buyer_name"], r["product_option"], r["quantity"], r["sales_amount"], r["record_count"], r["source_rows"]] for r in report["duplicate_suspects"]], currency_columns=(6,))
+        ["플랫폼", "주문번호", "구매자", "제품사이즈", "수량", "매출", "행 수", "원본 행"],
+        [[r["platform"], r["order_number"], r["buyer_name"], dashboard_size_label(r["product_option"]), r["quantity"], r["sales_amount"], r["record_count"], r["source_rows"]] for r in report["duplicate_suspects"]], currency_columns=(6,))
     return workbook_response(workbook, dated_excel_filename("매출대사"))
 
 
@@ -1303,10 +1328,10 @@ def export_sales(
     worksheet = workbook.active
     worksheet.title = "통합 판매내역"
     headers = [
-        "플랫폼", "주문번호", "매출월", "신고일", "상품유형",
-        "상품/사이즈", "수량", "매출 구분", "신용카드", "현금영수증",
+        "플랫폼", "주문번호", "매출월", "신고일", "제품유형",
+        "제품코드", "수량", "신용카드", "현금영수증",
         "세금계산서", "기타", "수수료1", "수수료2",
-        "정산금액", "구매자", "비고",
+        "정산금액", "구매자", "제품사이즈", "비고",
     ]
     worksheet.append(headers)
 
@@ -1318,12 +1343,14 @@ def export_sales(
         worksheet.append(
             [
                 row["platform"], row["order_number"], row["sales_month"],
-                excel_date_value(row["tax_date"]), row["item_type"], row["product_option"],
-                row["quantity"], payment_type_for_row(row), row["credit_card_amount"],
+                excel_date_value(row["tax_date"]),
+                product_type_label(row["item_type"]),
+                product_code_for_size(row["product_option"]), row["quantity"],
+                row["credit_card_amount"],
                 row["cash_receipt_amount"], row["tax_invoice_amount"],
                 row["other_amount"], row["fee_amount_1"],
                 row["fee_amount_2"], row["settlement_amount"],
-                row["buyer_name"], row["note"],
+                row["buyer_name"], dashboard_size_label(row["product_option"]), row["note"],
             ]
         )
 
@@ -1495,7 +1522,7 @@ def export_reports():
 
     workbook = Workbook()
     add_export_sheet(workbook, "월별 매출", ["연월", "수량", "매출"], [[r["period"], r["quantity"], r["sales_amount"]] for r in monthly], currency_columns=(3,))
-    add_export_sheet(workbook, "상품 사이즈", ["유형", "상품/사이즈", "수량", "매출"], [[r["item_type"], r["product_option"], r["quantity"], r["sales_amount"]] for r in products], currency_columns=(4,))
+    add_export_sheet(workbook, "제품 사이즈", ["유형", "제품사이즈", "수량", "매출"], [[product_type_label(r["item_type"]), dashboard_size_label(r["product_option"]), r["quantity"], r["sales_amount"]] for r in products], currency_columns=(4,))
     add_export_sheet(workbook, "부가세 기초자료", ["연월", "신용카드", "현금영수증", "세금계산서", "기타", "예상 부가세"], [[r["period"], r["credit_card_amount"], r["cash_receipt_amount"], r["tax_invoice_amount"], r["other_amount"], r["vat_amount"]] for r in taxes], currency_columns=(2,3,4,5,6))
     add_export_sheet(workbook, "홈택스 대사", ["연월", "플랫폼", "웹 판매자료", "홈택스 자료", "차이"], [[r["period"], r["platform"], r["sales_amount"], r["hometax_amount"], r["difference_amount"]] for r in reconciliation], currency_columns=(3,4,5))
     add_export_sheet(workbook, "회계처리 집계", ["플랫폼", "매출", "공급가액", "부가세", "수수료"], [[r["platform"], r["sales_amount"], r["supply_amount"], r["vat_amount"], r["fee_amount"]] for r in accounting], currency_columns=(2,3,4,5))
