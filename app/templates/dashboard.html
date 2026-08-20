@@ -90,7 +90,7 @@
 <section id="platform-size-sales" class="panel dashboard-table-panel dashboard-size-section">
     <div class="panel-heading">
         <div>
-            <h2>플랫폼·사이즈별 판매수량</h2>
+            <h2>플랫폼·제품코드별 판매수량</h2>
             <p class="panel-description">오므론·배송비·일반 취소 제외, 본품취소 포함 · 월 필터는 이 현황에만 적용됩니다.</p>
         </div>
         <form class="size-month-filter" method="get" data-preserve-scroll>
@@ -125,7 +125,7 @@
                 {% for item in group['items'] %}
                 <article class="size-product-card {% if item.quantity < 0 %}is-negative{% endif %}">
                     <div class="size-product-meta">
-                        <span>SIZE</span>
+                        <span>PRODUCT CODE</span>
                         <small>{{ "{:.1f}".format(item.share) }}%</small>
                     </div>
                     <strong class="size-product-name">{{ item.display_label }}</strong>

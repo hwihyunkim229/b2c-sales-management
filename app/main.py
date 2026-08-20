@@ -922,7 +922,7 @@ def dashboard(
         group["items"].append(
             {
                 "product_option": row["product_option"],
-                "display_label": dashboard_size_label(row["product_option"]),
+                "display_label": product_code_for_size(row["product_option"]),
                 "quantity": quantity,
                 "absolute_quantity": abs(quantity),
             }
