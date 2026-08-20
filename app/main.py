@@ -767,7 +767,8 @@ def normalized_size_key(value: object) -> str:
 
 
 def product_code_for_size(value: object) -> str:
-    return PRODUCT_CODES.get(normalized_size_key(value), "-")
+    original_value = str(value or "").strip()
+    return PRODUCT_CODES.get(normalized_size_key(value), original_value or "-")
 
 
 def product_type_label(value: object) -> str:
