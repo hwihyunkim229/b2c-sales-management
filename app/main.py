@@ -716,18 +716,50 @@ SALES_EXPRESSION = """
 
 SALE_QUANTITY_EXPRESSION = """
     CASE
-        WHEN COALESCE(item_type, '') NOT LIKE '%배송비%'
-         AND COALESCE(item_type, '') NOT LIKE '%오므론%'
-         AND COALESCE(product_option, '') NOT LIKE '%배송비%'
-         AND COALESCE(product_option, '') NOT LIKE '%오므론%'
-         AND (
-             COALESCE(item_type, '') != '취소'
-             OR REPLACE(COALESCE(product_option, ''), ' ', '') = '본품취소'
+        WHEN COALESCE(item_type, '') IN ('제품취소', '취소', '본품취소')
+         AND REPLACE(COALESCE(product_option, ''), ' ', '') NOT IN (
+             '오므론', '배송비', '사이즈미정'
+         )
+        THEN -ABS(COALESCE(quantity, 0))
+        WHEN COALESCE(item_type, '') IN ('제품', '상품', '제품확정')
+         AND REPLACE(COALESCE(product_option, ''), ' ', '') NOT IN (
+             '오므론', '배송비', '사이즈미정'
          )
         THEN COALESCE(quantity, 0)
         ELSE 0
     END
 """
+
+PRODUCT_TYPE_EQUIVALENTS = {
+    "제품": ("제품", "상품"),
+    "제품취소": ("제품취소", "취소", "본품취소"),
+    "제품확정": ("제품확정",),
+    "부가제품": ("부가제품", "부가상품"),
+    "배송비": ("배송비",),
+    "사이즈미정": ("사이즈미정",),
+    "수수료": ("수수료",),
+}
+
+
+def normalized_product_type(value: object) -> str:
+    label = str(value or "").strip()
+    for standard, equivalents in PRODUCT_TYPE_EQUIVALENTS.items():
+        if label in equivalents:
+            return standard
+    return label or "제품"
+
+
+def add_product_type_condition(
+    conditions: list[str], parameters: list[object], value: str
+) -> None:
+    equivalents = PRODUCT_TYPE_EQUIVALENTS.get(value)
+    if equivalents is None:
+        conditions.append("item_type = ?")
+        parameters.append(value)
+        return
+    placeholders = ", ".join("?" for _ in equivalents)
+    conditions.append(f"item_type IN ({placeholders})")
+    parameters.extend(equivalents)
 
 PRODUCT_CODES = {
     "rev1_7": "SL-P-PD-00033",
@@ -766,16 +798,21 @@ def normalized_size_key(value: object) -> str:
     return label
 
 
-def product_code_for_size(value: object) -> str:
+def product_code_for_size(value: object, item_type: object = None) -> str:
     original_value = str(value or "").strip()
-    return PRODUCT_CODES.get(normalized_size_key(value), original_value or "-")
+    mapped_code = PRODUCT_CODES.get(normalized_size_key(value))
+    if mapped_code is not None:
+        return mapped_code
+    normalized_option = original_value.replace(" ", "")
+    if normalized_option in {"오므론", "배송비", "사이즈미정"}:
+        return original_value
+    if normalized_product_type(item_type) == "제품취소":
+        return "제품취소"
+    return original_value or "-"
 
 
 def product_type_label(value: object) -> str:
-    return {
-        "상품": "제품",
-        "부가상품": "부가제품",
-    }.get(str(value or ""), str(value or "-").replace("상품", "제품"))
+    return normalized_product_type(value)
 
 
 def dashboard_size_label(value: object) -> str:
@@ -885,12 +922,18 @@ def dashboard(
             SELECT
                 platform,
                 COALESCE(product_option, '미지정') AS product_option,
+                CASE
+                    WHEN COALESCE(item_type, '') IN (
+                        '제품취소', '취소', '본품취소'
+                    ) THEN 'cancel'
+                    ELSE 'sale'
+                END AS quantity_kind,
                 COALESCE(SUM({SALE_QUANTITY_EXPRESSION}), 0) AS quantity
             FROM sales_records
             WHERE {size_where_clause}
-            GROUP BY platform, product_option
+            GROUP BY platform, product_option, quantity_kind
             HAVING ABS(SUM({SALE_QUANTITY_EXPRESSION})) > 0.001
-            ORDER BY platform, quantity DESC, product_option
+            ORDER BY platform, product_option, quantity_kind DESC
             """,
             size_parameters,
         ).fetchall()
@@ -913,29 +956,46 @@ def dashboard(
             group = {
                 "platform": platform_name,
                 "items": [],
+                "item_lookup": {},
                 "total_quantity": 0,
-                "maximum_quantity": 0,
+                "sale_quantity": 0,
+                "cancel_quantity": 0,
             }
             platform_size_lookup[platform_name] = group
             platform_size_groups.append(group)
         group = platform_size_lookup[platform_name]
         quantity = row["quantity"] or 0
-        group["items"].append(
-            {
+        display_label = product_code_for_size(row["product_option"])
+        item_key = (display_label, row["quantity_kind"])
+        if item_key not in group["item_lookup"]:
+            item = {
                 "product_option": row["product_option"],
-                "display_label": product_code_for_size(row["product_option"]),
-                "quantity": quantity,
-                "absolute_quantity": abs(quantity),
+                "display_label": display_label,
+                "quantity_kind": row["quantity_kind"],
+                "quantity_kind_label": (
+                    "제품취소" if row["quantity_kind"] == "cancel"
+                    else "제품·제품확정"
+                ),
+                "quantity": 0,
+                "absolute_quantity": 0,
             }
-        )
+            group["item_lookup"][item_key] = item
+            group["items"].append(item)
+        item = group["item_lookup"][item_key]
+        item["quantity"] += quantity
+        item["absolute_quantity"] = abs(item["quantity"])
         group["total_quantity"] += quantity
-        group["maximum_quantity"] = max(
-            group["maximum_quantity"], abs(quantity)
-        )
-
+        if row["quantity_kind"] == "cancel":
+            group["cancel_quantity"] += quantity
+        else:
+            group["sale_quantity"] += quantity
     for group in platform_size_groups:
+        group.pop("item_lookup", None)
         group["items"].sort(
-            key=lambda item: dashboard_size_sort_key(item["product_option"])
+            key=lambda item: (
+                dashboard_size_sort_key(item["product_option"]),
+                1 if item["quantity_kind"] == "cancel" else 0,
+            )
         )
         absolute_total = sum(
             item["absolute_quantity"] for item in group["items"]
@@ -1055,8 +1115,7 @@ def sales_list(
         parameters.append(selected_month)
 
     if item_type:
-        conditions.append("item_type = ?")
-        parameters.append(item_type)
+        add_product_type_condition(conditions, parameters, item_type)
 
     if needs_review:
         conditions.append("review_status = 'issue'")
@@ -1212,6 +1271,7 @@ def sales_edit(request: Request, record_id: int):
 @app.post("/sales/{record_id}/edit")
 def update_sales_record(
     record_id: int,
+    item_type: str = Form(default="제품"),
     product_option: str = Form(default=""),
     quantity: float = Form(default=0),
     credit_card_amount: float = Form(default=0),
@@ -1228,13 +1288,16 @@ def update_sales_record(
 ):
     if review_status not in ("normal", "reviewed", "issue"):
         review_status = "normal"
+    item_type = normalized_product_type(item_type)
+    if item_type not in PRODUCT_TYPE_EQUIVALENTS:
+        item_type = "제품"
 
     with get_connection() as connection:
         connection.execute(
             """
             UPDATE sales_records
             SET
-                product_option = ?, quantity = ?,
+                item_type = ?, product_option = ?, quantity = ?,
                 credit_card_amount = ?, cash_receipt_amount = ?,
                 tax_invoice_amount = ?, other_amount = ?,
                 fee_amount_1 = ?, fee_amount_2 = ?,
@@ -1244,6 +1307,7 @@ def update_sales_record(
             WHERE id = ?
             """,
             (
+                item_type,
                 product_option.strip() or None,
                 quantity,
                 credit_card_amount,
@@ -1308,11 +1372,13 @@ def export_sales(
     for column, value in (
         ("platform", platform),
         ("sales_month", selected_month),
-        ("item_type", item_type),
     ):
         if value not in (None, ""):
             conditions.append(f"{column} = ?")
             parameters.append(value)
+
+    if item_type:
+        add_product_type_condition(conditions, parameters, item_type)
 
     where_clause = ""
 
@@ -1346,7 +1412,8 @@ def export_sales(
                 row["platform"], row["order_number"], row["sales_month"],
                 excel_date_value(row["tax_date"]),
                 product_type_label(row["item_type"]),
-                product_code_for_size(row["product_option"]), row["quantity"],
+                product_code_for_size(row["product_option"], row["item_type"]),
+                row["quantity"],
                 row["credit_card_amount"],
                 row["cash_receipt_amount"], row["tax_invoice_amount"],
                 row["other_amount"], row["fee_amount_1"],
@@ -1646,6 +1713,28 @@ def cancel_import(batch_id: int):
         ).fetchone()
         if batch is None or batch["status"] != "completed":
             return RedirectResponse(url="/imports", status_code=303)
+        type_updates = connection.execute(
+            """
+            SELECT * FROM import_record_updates
+            WHERE import_batch_id = ? AND is_active = 1
+            """,
+            (batch_id,),
+        ).fetchall()
+        for update in type_updates:
+            connection.execute(
+                """
+                UPDATE sales_records SET item_type = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND item_type = ?
+                """,
+                (
+                    update["old_item_type"], update["sales_record_id"],
+                    update["new_item_type"],
+                ),
+            )
+        connection.execute(
+            "UPDATE import_record_updates SET is_active = 0 WHERE import_batch_id = ?",
+            (batch_id,),
+        )
         connection.execute(
             "UPDATE sales_records SET batch_is_active = 0 WHERE import_batch_id = ?",
             (batch_id,),
@@ -1681,6 +1770,28 @@ def restore_import(batch_id: int):
         ).fetchone()
         if batch is None or batch["status"] != "cancelled":
             return RedirectResponse(url="/imports", status_code=303)
+        type_updates = connection.execute(
+            """
+            SELECT * FROM import_record_updates
+            WHERE import_batch_id = ? AND is_active = 0
+            """,
+            (batch_id,),
+        ).fetchall()
+        for update in type_updates:
+            connection.execute(
+                """
+                UPDATE sales_records SET item_type = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND item_type = ?
+                """,
+                (
+                    update["new_item_type"], update["sales_record_id"],
+                    update["old_item_type"],
+                ),
+            )
+        connection.execute(
+            "UPDATE import_record_updates SET is_active = 1 WHERE import_batch_id = ?",
+            (batch_id,),
+        )
         connection.execute(
             """
             UPDATE sales_records AS target

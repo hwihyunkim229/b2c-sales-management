@@ -52,8 +52,8 @@
         </select>
         <select name="item_type">
             <option value="">전체 유형</option>
-            {% for value, label in [('상품', '제품'), ('부가상품', '부가제품'), ('배송비', '배송비'), ('취소', '취소'), ('수수료', '수수료')] %}
-            <option value="{{ value }}" {% if selected_item_type == value %}selected{% endif %}>{{ label }}</option>
+            {% for value in ['제품', '제품취소', '제품확정', '부가제품', '배송비', '사이즈미정'] %}
+            <option value="{{ value }}" {% if selected_item_type == value %}selected{% endif %}>{{ value }}</option>
             {% endfor %}
         </select>
         <label class="filter-checkbox">
@@ -110,7 +110,7 @@
                     <td>{{ row.sales_month }}월</td>
                     <td>{{ row.tax_date | date_only }}</td>
                     <td>{{ row.item_type | product_type }}</td>
-                    <td>{{ row.product_option | product_code }}</td>
+                    <td>{{ row.product_option | product_code(row.item_type) }}</td>
                     <td class="number">{{ "{:,.0f}".format(row.quantity) }}</td>
                     <td class="number">{{ "{:,.0f}".format(row.credit_card_amount) }}원</td>
                     <td class="number">{{ "{:,.0f}".format(row.cash_receipt_amount) }}원</td>

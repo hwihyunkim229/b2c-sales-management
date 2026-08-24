@@ -91,7 +91,7 @@
     <div class="panel-heading">
         <div>
             <h2>플랫폼·제품코드별 판매수량</h2>
-            <p class="panel-description">오므론·배송비·일반 취소 제외, 본품취소 포함 · 월 필터는 이 현황에만 적용됩니다.</p>
+            <p class="panel-description">제품·제품확정은 합산하고 제품취소는 품목별 음수 수량으로 분리합니다. · 월 필터는 이 현황에만 적용됩니다.</p>
         </div>
         <form class="size-month-filter" method="get" data-preserve-scroll>
             <label for="size-month">매출월</label>
@@ -119,14 +119,18 @@
             <div class="size-chart-summary">
                 <span>{{ group.platform }}</span>
                 <strong>{{ "{:,.0f}".format(group.total_quantity) }}개</strong>
-                <small>판매수량 합계</small>
+                <small>제품 순수량</small>
+                <div class="size-summary-breakdown">
+                    <span>제품·제품확정 <b>{{ "{:,.0f}".format(group.sale_quantity) }}개</b></span>
+                    <span>제품취소 <b>{{ "{:,.0f}".format(group.cancel_quantity) }}개</b></span>
+                </div>
             </div>
             <div class="size-product-grid">
                 {% for item in group['items'] %}
-                <article class="size-product-card {% if item.quantity < 0 %}is-negative{% endif %}">
+                <article class="size-product-card {% if item.quantity_kind == 'cancel' %}is-negative{% endif %}">
                     <div class="size-product-meta">
                         <span>PRODUCT CODE</span>
-                        <small>{{ "{:.1f}".format(item.share) }}%</small>
+                        <small>{{ item.quantity_kind_label }}</small>
                     </div>
                     <strong class="size-product-name">{{ item.display_label }}</strong>
                     <div class="size-product-quantity">

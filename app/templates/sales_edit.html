@@ -13,6 +13,19 @@
     </a>
 </header>
 <form class="edit-form panel" method="post">
+    <label>
+        <span>제품유형</span>
+        <select name="item_type">
+            {% set current_item_type = record.item_type | product_type %}
+            {% set product_types = ['제품', '제품취소', '제품확정', '부가제품', '배송비', '사이즈미정'] %}
+            {% if current_item_type not in product_types %}
+            <option value="{{ current_item_type }}" selected>{{ current_item_type }}</option>
+            {% endif %}
+            {% for value in product_types %}
+            <option value="{{ value }}" {% if current_item_type == value %}selected{% endif %}>{{ value }}</option>
+            {% endfor %}
+        </select>
+    </label>
     {% for name, label, value, input_type in [
         ('product_option','제품사이즈',record.product_option,'text'),
         ('quantity','수량',record.quantity,'number'),

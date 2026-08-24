@@ -202,6 +202,21 @@ CREATE TABLE IF NOT EXISTS import_issues (
 );
 CREATE INDEX IF NOT EXISTS idx_import_issues_batch ON import_issues(import_batch_id);
 
+CREATE TABLE IF NOT EXISTS import_record_updates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    import_batch_id INTEGER NOT NULL,
+    sales_record_id INTEGER NOT NULL,
+    old_item_type TEXT NOT NULL,
+    new_item_type TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(import_batch_id, sales_record_id),
+    FOREIGN KEY (import_batch_id) REFERENCES import_batches(id) ON DELETE CASCADE,
+    FOREIGN KEY (sales_record_id) REFERENCES sales_records(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_import_record_updates_batch
+    ON import_record_updates(import_batch_id);
+
 CREATE TABLE IF NOT EXISTS audit_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     action TEXT NOT NULL,
@@ -306,6 +321,16 @@ POSTGRES_SCHEMA_STATEMENTS = (
         created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     )""",
     "CREATE INDEX IF NOT EXISTS idx_import_issues_batch ON import_issues(import_batch_id)",
+    """CREATE TABLE IF NOT EXISTS import_record_updates (
+        id BIGSERIAL PRIMARY KEY,
+        import_batch_id BIGINT NOT NULL REFERENCES import_batches(id) ON DELETE CASCADE,
+        sales_record_id BIGINT NOT NULL REFERENCES sales_records(id) ON DELETE CASCADE,
+        old_item_type TEXT NOT NULL, new_item_type TEXT NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(import_batch_id, sales_record_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_import_record_updates_batch ON import_record_updates(import_batch_id)",
     """CREATE TABLE IF NOT EXISTS audit_logs (
         id BIGSERIAL PRIMARY KEY, action TEXT NOT NULL, target_type TEXT NOT NULL,
         target_id BIGINT, description TEXT NOT NULL,
@@ -363,6 +388,18 @@ def _normalize_existing_data(connection) -> None:
             platform_status = CASE WHEN platform IS NULL OR platform = ''
                 THEN 'unassigned' ELSE 'manual' END
         WHERE source_platform IS NULL"""
+    )
+    connection.execute(
+        """UPDATE sales_records SET item_type = '배송비'
+        WHERE REPLACE(COALESCE(product_option, ''), ' ', '') LIKE '%배송비%'"""
+    )
+    connection.execute(
+        """UPDATE sales_records SET item_type = '부가제품'
+        WHERE REPLACE(COALESCE(product_option, ''), ' ', '') LIKE '%오므론%'"""
+    )
+    connection.execute(
+        """UPDATE sales_records SET item_type = '사이즈미정'
+        WHERE REPLACE(COALESCE(product_option, ''), ' ', '') LIKE '%사이즈미정%'"""
     )
 
 

@@ -16,6 +16,19 @@ _source_cache: dict[str, object] = {
     "errors": [],
 }
 
+
+def _sale_quantity(row) -> float:
+    item_type = (row["item_type"] or "").strip()
+    product_option = (row["product_option"] or "").replace(" ", "")
+    if product_option in {"오므론", "배송비", "사이즈미정"}:
+        return 0
+    quantity = row["quantity"] or 0
+    if item_type in {"제품취소", "취소", "본품취소"}:
+        return -abs(quantity)
+    if item_type in {"제품", "상품", "제품확정"}:
+        return quantity
+    return 0
+
 def _load_source_records(
     batches: list[sqlite3.Row],
     upload_directory: Path,
@@ -301,16 +314,7 @@ def build_validation_report(
     )
     summary = {
         "quantity": sum(
-            (row["quantity"] or 0)
-            for row in active_rows
-            if "배송비" not in (row["item_type"] or "")
-            and "오므론" not in (row["item_type"] or "")
-            and "배송비" not in (row["product_option"] or "")
-            and "오므론" not in (row["product_option"] or "")
-            and (
-                row["item_type"] != "취소"
-                or (row["product_option"] or "").replace(" ", "") == "본품취소"
-            )
+            _sale_quantity(row) for row in active_rows
         ),
         "sales_amount": sum((row["sales_amount"] or 0) for row in active_rows),
         "credit_card_amount": sum((row["credit_card_amount"] or 0) for row in active_rows),

@@ -123,9 +123,6 @@ def _date_value(value: object) -> str | None:
 def _item_type(product_option: str, quantity: float) -> str:
     normalized = product_option.replace(" ", "").lower()
 
-    if "취소" in normalized or quantity < 0:
-        return "취소"
-
     if "배송비" in normalized:
         return "배송비"
 
@@ -133,9 +130,15 @@ def _item_type(product_option: str, quantity: float) -> str:
         return "수수료"
 
     if "오므론" in normalized:
-        return "부가상품"
+        return "부가제품"
 
-    return "상품"
+    if "사이즈미정" in normalized:
+        return "사이즈미정"
+
+    if "취소" in normalized or quantity < 0:
+        return "제품취소"
+
+    return "제품"
 
 def _fingerprint(
     platform: str,
@@ -214,16 +217,27 @@ def _integrated_sales_sheet(workbook):
 
 
 def _integrated_item_type(value: object, product_option: str, quantity: float) -> str:
+    normalized_product = product_option.replace(" ", "").lower()
+    if "배송비" in normalized_product:
+        return "배송비"
+    if "오므론" in normalized_product:
+        return "부가제품"
+    if "사이즈미정" in normalized_product:
+        return "사이즈미정"
+
     normalized = _normalized_header(value)
     mapped = {
-        "제품": "상품",
-        "상품": "상품",
-        "부가제품": "부가상품",
-        "부가상품": "부가상품",
+        "제품": "제품",
+        "상품": "제품",
+        "제품확정": "제품확정",
+        "제품취소": "제품취소",
+        "부가제품": "부가제품",
+        "부가상품": "부가제품",
         "배송비": "배송비",
+        "사이즈미정": "사이즈미정",
         "수수료": "수수료",
-        "취소": "취소",
-        "본품취소": "취소",
+        "취소": "제품취소",
+        "본품취소": "제품취소",
     }.get(normalized)
     return mapped or _item_type(product_option, quantity)
 
@@ -249,10 +263,10 @@ def _normalized_product_option(value: object) -> str:
     return normalized
 
 
-def _has_matching_active_sales_record(connection, values: dict[str, object]) -> bool:
+def _matching_active_sales_record(connection, values: dict[str, object]):
     candidates = connection.execute(
         """
-        SELECT product_option
+        SELECT id, item_type, product_option
         FROM sales_records
         WHERE is_active = 1 AND batch_is_active = 1
           AND platform = ? AND order_number = ?
@@ -277,9 +291,13 @@ def _has_matching_active_sales_record(connection, values: dict[str, object]) -> 
         ),
     ).fetchall()
     normalized_option = _normalized_product_option(values["product_option"])
-    return any(
-        _normalized_product_option(candidate["product_option"]) == normalized_option
-        for candidate in candidates
+    return next(
+        (
+            candidate for candidate in candidates
+            if _normalized_product_option(candidate["product_option"])
+            == normalized_option
+        ),
+        None,
     )
 
 
@@ -374,9 +392,53 @@ def _import_integrated_sales_sheet(
             result.preview_rows.append(preview)
             continue
 
-        if _has_matching_active_sales_record(connection, record):
-            result.duplicate_rows += 1
-            preview["status"] = "duplicate"
+        matching_record = _matching_active_sales_record(connection, record)
+        if matching_record is not None:
+            current_type = _integrated_item_type(
+                matching_record["item_type"], product_option, quantity
+            )
+            if current_type == record["item_type"]:
+                result.duplicate_rows += 1
+                preview["status"] = "duplicate"
+                result.preview_rows.append(preview)
+                continue
+
+            connection.execute(
+                """
+                UPDATE sales_records
+                SET item_type = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (record["item_type"], matching_record["id"]),
+            )
+            connection.execute(
+                """
+                INSERT INTO import_record_updates (
+                    import_batch_id, sales_record_id,
+                    old_item_type, new_item_type
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT (import_batch_id, sales_record_id) DO UPDATE SET
+                    new_item_type = excluded.new_item_type,
+                    is_active = 1
+                """,
+                (
+                    batch_id, matching_record["id"],
+                    current_type, record["item_type"],
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO audit_logs (
+                    action, target_type, target_id, description
+                ) VALUES ('update', 'sales_record', ?, ?)
+                """,
+                (
+                    matching_record["id"],
+                    f"통합 엑셀 제품유형 변경: {current_type} → {record['item_type']} (업로드 {batch_id})",
+                ),
+            )
+            result.imported_rows += 1
+            preview["status"] = "updated"
             result.preview_rows.append(preview)
             continue
 

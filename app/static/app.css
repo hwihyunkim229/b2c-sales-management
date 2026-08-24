@@ -305,6 +305,32 @@ html.sidebar-collapsed-preload .sidebar-toggle span {
     font-size: 30px;
 }
 
+.size-summary-breakdown {
+    display: grid;
+    gap: 5px;
+    width: 100%;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #dfe7e4;
+}
+
+.size-summary-breakdown span {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    color: #64766f;
+    font-size: 11px;
+}
+
+.size-summary-breakdown b {
+    color: #173f36;
+    font-weight: 800;
+}
+
+.size-summary-breakdown span:last-child b {
+    color: #b42318;
+}
+
 .size-product-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(120px, 1fr));
