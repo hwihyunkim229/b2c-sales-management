@@ -224,6 +224,8 @@ def _integrated_item_type(value: object, product_option: str, quantity: float) -
         return "부가제품"
     if "사이즈미정" in normalized_product:
         return "사이즈미정"
+    if quantity < 0:
+        return "제품취소"
 
     normalized = _normalized_header(value)
     mapped = {

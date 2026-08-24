@@ -401,6 +401,13 @@ def _normalize_existing_data(connection) -> None:
         """UPDATE sales_records SET item_type = '사이즈미정'
         WHERE REPLACE(COALESCE(product_option, ''), ' ', '') LIKE '%사이즈미정%'"""
     )
+    connection.execute(
+        """UPDATE sales_records SET item_type = '제품취소'
+        WHERE quantity < 0
+          AND REPLACE(COALESCE(product_option, ''), ' ', '') NOT LIKE '%배송비%'
+          AND REPLACE(COALESCE(product_option, ''), ' ', '') NOT LIKE '%오므론%'
+          AND REPLACE(COALESCE(product_option, ''), ' ', '') NOT LIKE '%사이즈미정%'"""
+    )
 
 
 def _initialize_sqlite() -> None:
