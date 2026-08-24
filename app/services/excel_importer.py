@@ -216,14 +216,22 @@ def _integrated_sales_sheet(workbook):
     return worksheet, headers
 
 
-def _integrated_item_type(value: object, product_option: str, quantity: float) -> str:
+def _integrated_item_type(
+    value: object,
+    product_option: str,
+    quantity: float,
+    note: str = "",
+) -> str:
     normalized_product = product_option.replace(" ", "").lower()
+    normalized_note = note.replace(" ", "").lower()
     if "배송비" in normalized_product:
         return "배송비"
     if "오므론" in normalized_product:
         return "부가제품"
     if "사이즈미정" in normalized_product:
         return "사이즈미정"
+    if "선수금" in normalized_note:
+        return "제품확정"
     if quantity < 0:
         return "제품취소"
 
@@ -268,7 +276,7 @@ def _normalized_product_option(value: object) -> str:
 def _matching_active_sales_record(connection, values: dict[str, object]):
     candidates = connection.execute(
         """
-        SELECT id, item_type, product_option
+        SELECT id, item_type, product_option, note
         FROM sales_records
         WHERE is_active = 1 AND batch_is_active = 1
           AND platform = ? AND order_number = ?
@@ -328,6 +336,7 @@ def _import_integrated_sales_sheet(
         platform = _text(value(row, "플랫폼"))
         order_number = _text(value(row, "주문번호"))
         product_option = _text(value(row, "제품사이즈"))
+        note = _text(value(row, "비고"))
         quantity = _number(value(row, "수량"))
         parsed_date = _date_value(value(row, "신고일"))
         parsed_month = _sales_month(value(row, "매출월"), value(row, "신고일"))
@@ -337,7 +346,7 @@ def _import_integrated_sales_sheet(
             "sales_month": parsed_month,
             "tax_date": parsed_date,
             "item_type": _integrated_item_type(
-                value(row, "제품유형"), product_option, quantity
+                value(row, "제품유형"), product_option, quantity, note
             ),
             "product_option": product_option,
             "quantity": quantity,
@@ -349,7 +358,7 @@ def _import_integrated_sales_sheet(
             "fee_amount_2": _number(value(row, "수수료2")),
             "settlement_amount": _number(value(row, "정산금액")),
             "buyer_name": _text(value(row, "구매자")),
-            "note": _text(value(row, "비고")),
+            "note": note,
         }
         result.total_rows += 1
 
@@ -397,7 +406,10 @@ def _import_integrated_sales_sheet(
         matching_record = _matching_active_sales_record(connection, record)
         if matching_record is not None:
             current_type = _integrated_item_type(
-                matching_record["item_type"], product_option, quantity
+                matching_record["item_type"],
+                matching_record["product_option"] or "",
+                quantity,
+                matching_record["note"] or "",
             )
             if current_type == record["item_type"]:
                 result.duplicate_rows += 1

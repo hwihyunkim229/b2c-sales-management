@@ -402,11 +402,16 @@ def _normalize_existing_data(connection) -> None:
         WHERE REPLACE(COALESCE(product_option, ''), ' ', '') LIKE '%사이즈미정%'"""
     )
     connection.execute(
+        """UPDATE sales_records SET item_type = '제품확정'
+        WHERE REPLACE(COALESCE(note, ''), ' ', '') LIKE '%선수금%'"""
+    )
+    connection.execute(
         """UPDATE sales_records SET item_type = '제품취소'
         WHERE quantity < 0
           AND REPLACE(COALESCE(product_option, ''), ' ', '') NOT LIKE '%배송비%'
           AND REPLACE(COALESCE(product_option, ''), ' ', '') NOT LIKE '%오므론%'
-          AND REPLACE(COALESCE(product_option, ''), ' ', '') NOT LIKE '%사이즈미정%'"""
+          AND REPLACE(COALESCE(product_option, ''), ' ', '') NOT LIKE '%사이즈미정%'
+          AND REPLACE(COALESCE(note, ''), ' ', '') NOT LIKE '%선수금%'"""
     )
 
 

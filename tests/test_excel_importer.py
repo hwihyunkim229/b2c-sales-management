@@ -41,3 +41,5 @@ def test_integrated_item_type_prioritizes_special_product_options():
     assert _integrated_item_type("제품", "rev1_12", -1) == "제품취소"
     assert _integrated_item_type("제품확정", "rev2_10", -1) == "제품취소"
     assert _integrated_item_type("제품확정", "rev2_10", 1) == "제품확정"
+    assert _integrated_item_type("제품", "rev1_8", 1, "선수금") == "제품확정"
+    assert _integrated_item_type("제품", "rev1_8", -1, "선수금 처리") == "제품확정"
