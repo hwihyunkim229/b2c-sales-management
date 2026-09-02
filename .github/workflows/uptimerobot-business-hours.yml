@@ -1,0 +1,99 @@
+name: UptimeRobot business hours
+
+on:
+  schedule:
+    # GitHub Actions cron uses UTC.
+    # Sunday-Thursday 23:00 UTC = Monday-Friday 08:00 KST.
+    - cron: "0 23 * * 0-4"
+    # Monday-Friday 09:00 UTC = Monday-Friday 18:00 KST.
+    - cron: "0 9 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Choose whether to resume or pause both monitors"
+        required: true
+        type: choice
+        options:
+          - resume
+          - pause
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uptimerobot-business-hours
+  cancel-in-progress: false
+
+jobs:
+  update-monitors:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Select action
+        id: selected
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+          MANUAL_ACTION: ${{ inputs.action }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            action="$MANUAL_ACTION"
+          elif [[ "$SCHEDULE" == "0 23 * * 0-4" ]]; then
+            action="resume"
+          else
+            action="pause"
+          fi
+
+          if [[ "$action" == "resume" ]]; then
+            echo "status=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=0" >> "$GITHUB_OUTPUT"
+          fi
+          echo "action=$action" >> "$GITHUB_OUTPUT"
+
+      - name: Validate secrets
+        shell: bash
+        env:
+          API_KEY: ${{ secrets.UPTIMEROBOT_API_KEY }}
+          B2C_MONITOR_ID: ${{ secrets.UPTIMEROBOT_B2C_MONITOR_ID }}
+          LOGISTICS_MONITOR_ID: ${{ secrets.UPTIMEROBOT_LOGISTICS_MONITOR_ID }}
+        run: |
+          [[ -n "$API_KEY" ]] || { echo "UPTIMEROBOT_API_KEY is missing"; exit 1; }
+          [[ -n "$B2C_MONITOR_ID" ]] || { echo "UPTIMEROBOT_B2C_MONITOR_ID is missing"; exit 1; }
+          [[ -n "$LOGISTICS_MONITOR_ID" ]] || { echo "UPTIMEROBOT_LOGISTICS_MONITOR_ID is missing"; exit 1; }
+
+      - name: Update both monitors
+        shell: bash
+        env:
+          API_KEY: ${{ secrets.UPTIMEROBOT_API_KEY }}
+          B2C_MONITOR_ID: ${{ secrets.UPTIMEROBOT_B2C_MONITOR_ID }}
+          LOGISTICS_MONITOR_ID: ${{ secrets.UPTIMEROBOT_LOGISTICS_MONITOR_ID }}
+          TARGET_STATUS: ${{ steps.selected.outputs.status }}
+          TARGET_ACTION: ${{ steps.selected.outputs.action }}
+        run: |
+          update_monitor() {
+            local name="$1"
+            local monitor_id="$2"
+            local response
+
+            response="$(curl --fail-with-body --silent --show-error \
+              --retry 2 \
+              --request POST \
+              --data-urlencode "api_key=$API_KEY" \
+              --data-urlencode "id=$monitor_id" \
+              --data-urlencode "status=$TARGET_STATUS" \
+              --data-urlencode "format=json" \
+              https://api.uptimerobot.com/v2/editMonitor)"
+
+            if [[ "$(jq -r '.stat // empty' <<< "$response")" != "ok" ]]; then
+              echo "Failed to $TARGET_ACTION $name monitor: $response"
+              exit 1
+            fi
+
+            echo "$name monitor: $TARGET_ACTION succeeded"
+          }
+
+          update_monitor "B2C Sales Management" "$B2C_MONITOR_ID"
+          update_monitor "Logistics System" "$LOGISTICS_MONITOR_ID"
