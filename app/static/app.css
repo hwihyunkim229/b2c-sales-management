@@ -1278,12 +1278,16 @@ body.modal-open {
 
 .sales-raw-table {
     min-width: 2050px;
+    table-layout: auto;
 }
 
 .sales-raw-table th,
 .sales-raw-table td {
     padding: 9px 8px;
-    white-space: nowrap;
+    height: auto;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: keep-all;
 }
 
 .sales-raw-table th:nth-child(3),
@@ -1294,6 +1298,12 @@ body.modal-open {
 .sales-raw-table th:nth-child(7),
 .sales-raw-table td:nth-child(7) {
     width: 58px;
+}
+
+.sales-raw-table th:last-child,
+.sales-raw-table td:last-child {
+    min-width: 220px;
+    max-width: 360px;
 }
 .status-cancelled {
     background: #f2f4f7;
