@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from uuid import uuid4
 from urllib.parse import quote
@@ -7,7 +8,8 @@ import io
 import math
 import re
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.styles import Alignment, Font, PatternFill
 
 from fastapi import FastAPI, File, Form, Query, Request, UploadFile
@@ -1465,6 +1467,387 @@ def import_history(request: Request):
     )
 
 
+PRODUCT_SUPPLY_PRICE = 500_000
+
+
+def round_won(value: object) -> int:
+    return int(
+        Decimal(str(value or 0)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    )
+
+
+def build_accounting_summary(row) -> dict[str, object]:
+    total_sales = round_won(row["total_sales"])
+    ancillary_expense = -abs(round_won(Decimal(str(row["ancillary_sales"] or 0)) / Decimal("1.1")))
+    delivery_expense = -abs(round_won(Decimal(str(row["delivery_sales"] or 0)) / Decimal("1.1")))
+    confirmed_advance = round_won(
+        Decimal(str(row["confirmed_quantity"] or 0)) * PRODUCT_SUPPLY_PRICE
+    )
+    unspecified_advance = -round_won(
+        Decimal(str(row["unspecified_sales"] or 0)) / Decimal("1.1")
+    )
+
+    debit_rows = [
+        {"source": "전체 매출", "account": "외상매출금", "amount": total_sales},
+        {"source": "부가제품", "account": "오므론", "amount": ancillary_expense},
+        {"source": "배송비", "account": "배송비", "amount": delivery_expense},
+        {"source": "제품확정", "account": "선수금", "amount": confirmed_advance},
+        {"source": "사이즈미정", "account": "선수금", "amount": unspecified_advance},
+    ]
+
+    credit_rows = [
+        {
+            "source": "제품",
+            "account": "제품매출",
+            "amount": round_won(Decimal(str(row["product_quantity"] or 0)) * PRODUCT_SUPPLY_PRICE),
+        },
+        {
+            "source": "제품확정",
+            "account": "제품매출",
+            "amount": round_won(Decimal(str(row["confirmed_quantity"] or 0)) * PRODUCT_SUPPLY_PRICE),
+        },
+        {
+            "source": "제품취소",
+            "account": "제품매출(취소)",
+            "amount": round_won(Decimal(str(row["cancel_quantity"] or 0)) * PRODUCT_SUPPLY_PRICE),
+        },
+    ]
+
+    payment_rows = []
+    for label, key in (
+        ("신용카드", "credit_card_amount"),
+        ("현금영수증", "cash_receipt_amount"),
+        ("기타", "other_amount"),
+        ("세금계산서", "tax_invoice_amount"),
+    ):
+        gross_amount = round_won(row[key])
+        supply_amount = round_won(Decimal(str(gross_amount)) / Decimal("1.1"))
+        vat_amount = round_won(Decimal(str(supply_amount)) * Decimal("0.1"))
+        payment_rows.append(
+            {
+                "source": label,
+                "account": "부가세예수금",
+                "gross_amount": gross_amount,
+                "supply_amount": supply_amount,
+                "vat_amount": vat_amount,
+            }
+        )
+
+    debit_total = sum(item["amount"] for item in debit_rows)
+    credit_total = sum(item["amount"] for item in credit_rows) + sum(
+        item["vat_amount"] for item in payment_rows
+    )
+    return {
+        "debit_rows": debit_rows,
+        "credit_rows": credit_rows,
+        "payment_rows": payment_rows,
+        "debit_total": debit_total,
+        "credit_total": credit_total,
+        "difference": debit_total - credit_total,
+    }
+
+
+def build_accounting_difference_rows(records, overall_difference: int) -> list[dict[str, object]]:
+    differences = []
+    row_difference_total = 0
+    for record in records:
+        item_type = normalized_product_type(record["item_type"])
+        gross_amount = sum(
+            record[key] or 0
+            for key in (
+                "credit_card_amount", "cash_receipt_amount",
+                "tax_invoice_amount", "other_amount",
+            )
+        )
+        row = {
+            "total_sales": gross_amount,
+            "ancillary_sales": gross_amount if item_type == "부가제품" else 0,
+            "delivery_sales": gross_amount if item_type == "배송비" else 0,
+            "unspecified_sales": gross_amount if item_type == "사이즈미정" else 0,
+            "product_quantity": record["quantity"] if item_type == "제품" else 0,
+            "confirmed_quantity": record["quantity"] if item_type == "제품확정" else 0,
+            "cancel_quantity": -abs(record["quantity"] or 0) if item_type == "제품취소" else 0,
+            "credit_card_amount": record["credit_card_amount"],
+            "cash_receipt_amount": record["cash_receipt_amount"],
+            "tax_invoice_amount": record["tax_invoice_amount"],
+            "other_amount": record["other_amount"],
+        }
+        result = build_accounting_summary(row)
+        difference = result["difference"]
+        row_difference_total += difference
+        if difference:
+            differences.append({
+                "record_id": record["id"],
+                "order_number": record["order_number"],
+                "item_type": item_type,
+                "product_option": record["product_option"] or "-",
+                "debit_amount": result["debit_total"],
+                "credit_amount": result["credit_total"],
+                "difference": difference,
+                "note": record["note"] or "-",
+            })
+
+    rounding_difference = overall_difference - row_difference_total
+    if rounding_difference:
+        differences.append({
+            "record_id": None,
+            "order_number": "전체 반올림 조정",
+            "item_type": "반올림",
+            "product_option": "-",
+            "debit_amount": 0,
+            "credit_amount": 0,
+            "difference": rounding_difference,
+            "note": "결제수단별 합계 후 원 단위 반올림으로 발생한 차이",
+        })
+    return differences
+
+
+def load_accounting_data(connection, sales_month: int | None, platform: str) -> dict[str, object]:
+    month_rows = connection.execute(
+        """SELECT DISTINCT sales_month FROM sales_records
+        WHERE sales_month IS NOT NULL AND is_active = 1 AND batch_is_active = 1
+        ORDER BY sales_month DESC"""
+    ).fetchall()
+    months = [item["sales_month"] for item in month_rows]
+    selected_month = sales_month if sales_month in months else (months[0] if months else None)
+
+    platform_rows = connection.execute(
+        """SELECT DISTINCT platform FROM sales_records
+        WHERE sales_month = ? AND is_active = 1 AND batch_is_active = 1
+        ORDER BY platform""",
+        (selected_month,),
+    ).fetchall() if selected_month is not None else []
+    platform_order = {name: index for index, name in enumerate(SUPPORTED_PLATFORMS)}
+    platforms = sorted(
+        (item["platform"] for item in platform_rows),
+        key=lambda name: (platform_order.get(name, len(platform_order)), name),
+    )
+    selected_platform = platform if platform in platforms else (platforms[0] if platforms else "")
+
+    summary_row = connection.execute(
+        f"""SELECT
+            COALESCE(SUM({SALES_EXPRESSION}), 0) AS total_sales,
+            COALESCE(SUM(CASE WHEN item_type IN ('부가제품', '부가상품') THEN {SALES_EXPRESSION} ELSE 0 END), 0) AS ancillary_sales,
+            COALESCE(SUM(CASE WHEN item_type = '배송비' THEN {SALES_EXPRESSION} ELSE 0 END), 0) AS delivery_sales,
+            COALESCE(SUM(CASE WHEN item_type = '사이즈미정' THEN {SALES_EXPRESSION} ELSE 0 END), 0) AS unspecified_sales,
+            COALESCE(SUM(CASE WHEN item_type IN ('제품', '상품') THEN quantity ELSE 0 END), 0) AS product_quantity,
+            COALESCE(SUM(CASE WHEN item_type = '제품확정' THEN quantity ELSE 0 END), 0) AS confirmed_quantity,
+            COALESCE(SUM(CASE WHEN item_type IN ('제품취소', '취소', '본품취소') THEN -ABS(quantity) ELSE 0 END), 0) AS cancel_quantity,
+            COALESCE(SUM(credit_card_amount), 0) AS credit_card_amount,
+            COALESCE(SUM(cash_receipt_amount), 0) AS cash_receipt_amount,
+            COALESCE(SUM(tax_invoice_amount), 0) AS tax_invoice_amount,
+            COALESCE(SUM(other_amount), 0) AS other_amount
+        FROM sales_records
+        WHERE sales_month = ? AND platform = ?
+          AND is_active = 1 AND batch_is_active = 1""",
+        (selected_month, selected_platform),
+    ).fetchone()
+    summary = build_accounting_summary(summary_row)
+    records = connection.execute(
+        """SELECT id, order_number, item_type, product_option, quantity,
+            credit_card_amount, cash_receipt_amount, tax_invoice_amount,
+            other_amount, note
+        FROM sales_records
+        WHERE sales_month = ? AND platform = ?
+          AND is_active = 1 AND batch_is_active = 1
+        ORDER BY id""",
+        (selected_month, selected_platform),
+    ).fetchall()
+    return {
+        "months": months,
+        "platforms": platforms,
+        "selected_month": selected_month,
+        "selected_platform": selected_platform,
+        "product_supply_price": PRODUCT_SUPPLY_PRICE,
+        "raw_totals": {
+            "ancillary_sales": round_won(summary_row["ancillary_sales"]),
+            "delivery_sales": round_won(summary_row["delivery_sales"]),
+            "unspecified_sales": round_won(summary_row["unspecified_sales"]),
+        },
+        "difference_rows": build_accounting_difference_rows(
+            records, summary["difference"]
+        ),
+        **summary,
+    }
+
+
+@app.get("/accounting")
+def accounting(request: Request, sales_month: int | None = None, platform: str = ""):
+    with get_connection() as connection:
+        data = load_accounting_data(connection, sales_month, platform)
+    return templates.TemplateResponse(
+        request=request,
+        name="accounting.html",
+        context=data,
+    )
+
+
+@app.get("/exports/accounting.xlsx")
+def export_accounting(sales_month: int | None = None, platform: str = ""):
+    with get_connection() as connection:
+        initial_data = load_accounting_data(connection, sales_month, platform)
+        selected_month = initial_data["selected_month"]
+        months = initial_data["months"]
+        month_data = {}
+        all_platforms = set()
+        for month in months:
+            month_index = load_accounting_data(connection, month, "")
+            all_platforms.update(month_index["platforms"])
+            for item in month_index["platforms"]:
+                month_data[(month, item)] = load_accounting_data(
+                    connection, month, item
+                )
+        platform_order = {name: index for index, name in enumerate(SUPPORTED_PLATFORMS)}
+        platforms = sorted(
+            all_platforms,
+            key=lambda name: (platform_order.get(name, len(platform_order)), name),
+        )
+
+    template_path = APP_DIRECTORY / "assets" / "accounting_export_template.xlsx"
+    workbook = load_workbook(template_path, data_only=False, keep_links=False)
+    worksheet = workbook["Sheet2"]
+    worksheet.title = "회계처리"
+    worksheet["C2"] = f"{selected_month}월" if selected_month else "-"
+    source_sheet = workbook.create_sheet("계산데이터")
+    source_sheet.append([
+        "기준월", "플랫폼", "외상매출금", "오므론", "오므론 공급대가",
+        "배송비", "배송비 공급대가", "제품확정 선수금", "사이즈미정 선수금",
+        "사이즈미정 공급대가", "제품매출", "제품수량", "제품확정 매출",
+        "제품확정 수량", "제품취소 매출", "제품취소 수량",
+        "신용카드 부가세", "신용카드 공급가액", "신용카드 공급대가",
+        "현금영수증 부가세", "현금영수증 공급가액", "현금영수증 공급대가",
+        "기타 부가세", "기타 공급가액", "기타 공급대가",
+        "세금계산서 부가세", "세금계산서 공급가액", "세금계산서 공급대가",
+        "수수료 차액",
+    ])
+    for month in months:
+        for item in platforms:
+            data = month_data.get((month, item))
+            if not data:
+                continue
+            debit, credit, payments = data["debit_rows"], data["credit_rows"], data["payment_rows"]
+            raw = data["raw_totals"]
+            source_sheet.append([
+                f"{month}월", item, debit[0]["amount"], debit[1]["amount"], -abs(raw["ancillary_sales"]),
+                debit[2]["amount"], -abs(raw["delivery_sales"]), debit[3]["amount"], debit[4]["amount"],
+                -raw["unspecified_sales"], credit[0]["amount"], round_won(credit[0]["amount"] / PRODUCT_SUPPLY_PRICE),
+                credit[1]["amount"], round_won(credit[1]["amount"] / PRODUCT_SUPPLY_PRICE),
+                credit[2]["amount"], round_won(credit[2]["amount"] / PRODUCT_SUPPLY_PRICE),
+                *[value for payment in payments for value in (
+                    payment["vat_amount"], payment["supply_amount"], payment["gross_amount"]
+                )],
+                -data["difference"],
+            ])
+
+    month_list_column = 31
+    for row_number, month in enumerate(months, start=2):
+        source_sheet.cell(row_number, month_list_column, f"{month}월")
+    if months:
+        worksheet.data_validations.dataValidation = []
+        validation = DataValidation(
+            type="list",
+            formula1='"' + ",".join(f"{month}월" for month in months) + '"',
+        )
+        worksheet.add_data_validation(validation)
+        validation.add(worksheet["C2"])
+    for cell_reference in ("B3", "B18", "B33"):
+        worksheet[cell_reference] = PRODUCT_SUPPLY_PRICE
+        worksheet[cell_reference].number_format = "#,##0_);[Red](#,##0)"
+
+    block_positions = (
+        (5, 4), (5, 11), (5, 18),
+        (20, 4), (20, 11), (20, 18),
+        (35, 4), (35, 11), (35, 18),
+    )
+    money_format = "#,##0_);[Red](#,##0)"
+
+    for index, (start_row, start_column) in enumerate(block_positions):
+        for row_number in range(start_row, start_row + 13):
+            for column_number in range(start_column, start_column + 6):
+                worksheet.cell(row_number, column_number).value = None
+        if index >= len(platforms):
+            continue
+        platform_name = platforms[index]
+        rows = [
+            (platform_name, "차변", "외상매출금", 3, None, None),
+            (None, "차변", "오므론", 4, None, 5),
+            (None, "차변", "배송비", 6, None, 7),
+            (None, "차변", "선수금", 8, None, None),
+            (None, "차변", "선수금", 9, None, 10),
+            (None, "대변", "제품매출", 11, None, 12),
+            (None, "대변", "제품매출", 13, None, 14),
+            (None, "대변", "제품매출(취소)", 15, None, 16),
+            (None, "대변", "부가세예수금", 17, 18, 19),
+            (None, "대변", "부가세예수금", 20, 21, 22),
+            (None, "대변", "부가세예수금", 23, 24, 25),
+            (None, "대변", "부가세예수금", 26, 27, 28),
+            (None, "차변", "수수료(차액)", 29, None, None),
+        ]
+        for row_offset, values in enumerate(rows):
+            for column_offset, value in enumerate(values):
+                cell = worksheet.cell(start_row + row_offset, start_column + column_offset)
+                if isinstance(value, int) and column_offset >= 3:
+                    source_column = source_sheet.cell(1, value).column_letter
+                    platform_cell = worksheet.cell(start_row, start_column).coordinate
+                    cell.value = (
+                        f'=IFERROR(SUMIFS(\'계산데이터\'!${source_column}$2:${source_column}${source_sheet.max_row},'
+                        f'\'계산데이터\'!$A$2:$A${source_sheet.max_row},$C$2,'
+                        f'\'계산데이터\'!$B$2:$B${source_sheet.max_row},{platform_cell}),0)'
+                    )
+                else:
+                    cell.value = value
+                if column_offset >= 3:
+                    cell.number_format = money_format
+
+    for row_number in range(6, 17):
+        for column_number in range(25, 29):
+            worksheet.cell(row_number, column_number).value = None
+    for index, platform_name in enumerate(platforms[:11], start=6):
+        worksheet.cell(index, 25, platform_name)
+    for column_number in range(26, 29):
+        worksheet.cell(17, column_number, f"=SUM({worksheet.cell(6, column_number).coordinate}:{worksheet.cell(16, column_number).coordinate})")
+        worksheet.cell(17, column_number).number_format = money_format
+
+    detail_rows = []
+    for month in months:
+        for platform_name in platforms:
+            data = month_data.get((month, platform_name))
+            if not data:
+                continue
+            detail_rows.extend([
+            [
+                f"{month}월", data["selected_platform"], item["order_number"], item["item_type"],
+                dashboard_size_label(item["product_option"]), item["debit_amount"],
+                item["credit_amount"], item["difference"], item["note"],
+            ]
+            for item in data["difference_rows"]
+            ])
+    add_export_sheet(
+        workbook,
+        "차이 상세내역",
+        ["기준월", "플랫폼", "주문번호", "제품유형", "제품사이즈", "차변", "대변", "차이", "비고"],
+        detail_rows,
+        currency_columns=(6, 7, 8),
+    )
+    detail_sheet = workbook["차이 상세내역"]
+    for column, width in {
+        "A": 10, "B": 14, "C": 20, "D": 14, "E": 18,
+        "F": 16, "G": 16, "H": 16, "I": 55,
+    }.items():
+        detail_sheet.column_dimensions[column].width = width
+    for row_number in range(2, detail_sheet.max_row + 1):
+        detail_sheet.cell(row_number, 9).alignment = Alignment(
+            vertical="center", wrap_text=True
+        )
+        detail_sheet.row_dimensions[row_number].height = 30
+    detail_sheet.auto_filter.ref = detail_sheet.dimensions
+    source_sheet.sheet_state = "hidden"
+    workbook.calculation.fullCalcOnLoad = True
+    workbook.calculation.forceFullCalc = True
+    workbook.calculation.calcMode = "auto"
+    return workbook_response(workbook, dated_excel_filename("회계처리"))
+
+
 @app.get("/reports")
 def reports(request: Request):
     with get_connection() as connection:
@@ -1830,6 +2213,50 @@ def restore_import(batch_id: int):
             "INSERT INTO audit_logs (action, target_type, target_id, description) VALUES ('restore', 'import_batch', ?, ?)",
             (batch_id, f"업로드 다시 복원: {batch['original_filename']}"),
         )
+    return RedirectResponse(url="/imports", status_code=303)
+
+
+@app.post("/imports/{batch_id}/delete")
+def delete_import(batch_id: int):
+    stored_filename = None
+    with get_connection() as connection:
+        batch = connection.execute(
+            "SELECT * FROM import_batches WHERE id = ?", (batch_id,)
+        ).fetchone()
+        if batch is None or batch["status"] == "processing":
+            return RedirectResponse(url="/imports", status_code=303)
+
+        type_updates = connection.execute(
+            """
+            SELECT * FROM import_record_updates
+            WHERE import_batch_id = ? AND is_active = 1
+            """,
+            (batch_id,),
+        ).fetchall()
+        for update in type_updates:
+            connection.execute(
+                """
+                UPDATE sales_records SET item_type = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND item_type = ?
+                """,
+                (
+                    update["old_item_type"], update["sales_record_id"],
+                    update["new_item_type"],
+                ),
+            )
+
+        stored_filename = batch["stored_filename"]
+        connection.execute("DELETE FROM import_batches WHERE id = ?", (batch_id,))
+
+    if stored_filename:
+        upload_root = UPLOAD_DIRECTORY.resolve()
+        stored_path = (UPLOAD_DIRECTORY / stored_filename).resolve()
+        if stored_path.parent == upload_root and stored_path.exists():
+            try:
+                stored_path.unlink()
+            except OSError:
+                pass
+
     return RedirectResponse(url="/imports", status_code=303)
 
 

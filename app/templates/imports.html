@@ -75,7 +75,9 @@
                     <td>{{ row.created_at | year_month }}</td>
                     <td>
                         {% if request.state.user.role != 'admin' %}-
-                        {% elif row.status == 'completed' %}
+                        {% else %}
+                        <div class="import-actions">
+                        {% if row.status == 'completed' %}
                         <form
                             method="post"
                             action="/imports/{{ row.id }}/cancel"
@@ -89,7 +91,14 @@
                         <form method="post" action="/imports/{{ row.id }}/restore" data-confirm-title="업로드를 다시 복원할까요?" data-confirm-message="판매 {{ '{:,}'.format(row.affected_sales_count) }}건과 홈택스 {{ '{:,}'.format(row.affected_hometax_count) }}건을 다시 집계에 반영합니다. 개별적으로 제외한 판매내역은 제외 상태가 유지됩니다." data-confirm-label="다시 복원">
                             <button class="text-button restore" type="submit">다시 복원</button>
                         </form>
-                        {% else %}-{% endif %}
+                        {% endif %}
+                        {% if row.status != 'processing' %}
+                        <form method="post" action="/imports/{{ row.id }}/delete" data-confirm-title="업로드를 영구 삭제할까요?" data-confirm-message="판매 {{ '{:,}'.format(row.affected_sales_count) }}건·홈택스 {{ '{:,}'.format(row.affected_hometax_count) }}건과 검증 이력, 원본 파일이 모두 삭제됩니다. 삭제 후에는 복원할 수 없습니다." data-confirm-label="영구 삭제">
+                            <button class="text-button danger" type="submit">영구 삭제</button>
+                        </form>
+                        {% endif %}
+                        </div>
+                        {% endif %}
                     </td>
                 </tr>
                 {% else %}

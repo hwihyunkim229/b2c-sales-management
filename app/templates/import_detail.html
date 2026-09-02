@@ -27,6 +27,11 @@
             <button class="button" type="submit">다시 복원</button>
         </form>
         {% endif %}
+        {% if batch.status != 'processing' %}
+        <form method="post" action="/imports/{{ batch.id }}/delete" data-confirm-title="업로드를 영구 삭제할까요?" data-confirm-message="이 업로드의 판매자료, 홈택스 자료, 검증 이력과 원본 파일이 모두 삭제됩니다. 삭제 후에는 복원할 수 없습니다." data-confirm-label="영구 삭제">
+            <button class="button button-danger" type="submit">영구 삭제</button>
+        </form>
+        {% endif %}
         {% endif %}
     </div>
 </header>

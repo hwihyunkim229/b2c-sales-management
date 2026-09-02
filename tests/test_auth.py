@@ -82,3 +82,4 @@ def test_account_creation_and_role_permissions(tmp_path, monkeypatch):
         assert viewer_client.get("/users").status_code == 403
         assert viewer_client.get("/sales/1/edit").status_code == 403
         assert viewer_client.post("/imports/1/cancel").status_code == 403
+        assert viewer_client.post("/imports/1/delete").status_code == 403

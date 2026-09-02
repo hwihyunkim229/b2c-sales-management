@@ -1160,6 +1160,95 @@ code {
     box-shadow: 0 1px 0 var(--line);
 }
 
+.accounting-filter-panel {
+    margin-bottom: 18px;
+    padding: 18px 20px;
+}
+
+.accounting-filter {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+}
+
+.accounting-filter label {
+    display: grid;
+    gap: 7px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.accounting-filter select {
+    min-width: 160px;
+}
+
+.accounting-price {
+    margin-left: auto;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: #f3faf7;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.accounting-price strong {
+    margin-left: 8px;
+    color: var(--primary);
+    font-size: 14px;
+}
+
+.accounting-ledger-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+    margin-bottom: 18px;
+}
+
+.accounting-ledger tfoot th {
+    background: #f3faf7;
+    color: var(--primary);
+}
+
+.accounting-vat-panel {
+    margin-bottom: 18px;
+}
+
+.accounting-difference {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 22px 26px;
+    border: 1px solid #b7dfd2;
+    border-radius: 12px;
+    background: #eef9f5;
+    color: #105246;
+}
+
+.accounting-difference span {
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.accounting-difference strong {
+    font-size: 26px;
+}
+
+.accounting-difference.has-difference {
+    border-color: #f5c1bb;
+    background: #fff3f1;
+    color: #b42318;
+}
+
+.accounting-difference-detail {
+    margin-top: 18px;
+}
+
+.accounting-difference-value {
+    color: #b42318;
+    font-weight: 750;
+}
+
 .text-button {
     padding: 0;
     border: 0;
@@ -1177,6 +1266,14 @@ code {
     display: flex;
     justify-content: center;
     gap: 8px;
+}
+
+.import-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    white-space: nowrap;
 }
 
 .compact-button {
@@ -1708,5 +1805,25 @@ body.modal-open {
     }
     .user-create-form .button {
          min-height: 38px; 
+    }
+}
+
+@media (max-width: 1000px) {
+    .accounting-ledger-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .accounting-filter {
+        align-items: stretch;
+        flex-wrap: wrap;
+    }
+
+    .accounting-filter label {
+        flex: 1 1 180px;
+    }
+
+    .accounting-price {
+        width: 100%;
+        margin-left: 0;
     }
 }
