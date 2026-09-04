@@ -77,22 +77,39 @@ jobs:
             local name="$1"
             local monitor_id="$2"
             local response
+            local body
+            local http_code
+            local attempt
 
-            response="$(curl --fail-with-body --silent --show-error \
-              --retry 2 \
-              --request POST \
-              --data-urlencode "api_key=$API_KEY" \
-              --data-urlencode "id=$monitor_id" \
-              --data-urlencode "status=$TARGET_STATUS" \
-              --data-urlencode "format=json" \
-              https://api.uptimerobot.com/v2/editMonitor)"
+            for attempt in {1..6}; do
+              response="$(curl --silent --show-error \
+                --connect-timeout 15 \
+                --max-time 30 \
+                --request POST \
+                --data-urlencode "api_key=$API_KEY" \
+                --data-urlencode "id=$monitor_id" \
+                --data-urlencode "status=$TARGET_STATUS" \
+                --data-urlencode "format=json" \
+                --write-out $'\n%{http_code}' \
+                https://api.uptimerobot.com/v2/editMonitor)" || true
 
-            if [[ "$(jq -r '.stat // empty' <<< "$response")" != "ok" ]]; then
-              echo "Failed to $TARGET_ACTION $name monitor: $response"
-              exit 1
-            fi
+              http_code="${response##*$'\n'}"
+              body="${response%$'\n'*}"
 
-            echo "$name monitor: $TARGET_ACTION succeeded"
+              if [[ "$http_code" =~ ^2[0-9][0-9]$ ]] && \
+                 [[ "$(jq -r '.stat // empty' <<< "$body" 2>/dev/null)" == "ok" ]]; then
+                echo "$name monitor: $TARGET_ACTION succeeded on attempt $attempt"
+                return 0
+              fi
+
+              echo "Attempt $attempt failed for $name (HTTP $http_code): $body"
+              if (( attempt < 6 )); then
+                sleep 20
+              fi
+            done
+
+            echo "Failed to $TARGET_ACTION $name monitor after 6 attempts"
+            return 1
           }
 
           update_monitor "B2C Sales Management" "$B2C_MONITOR_ID"
