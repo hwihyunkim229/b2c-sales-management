@@ -1478,8 +1478,12 @@ def round_won(value: object) -> int:
 
 def build_accounting_summary(row) -> dict[str, object]:
     total_sales = round_won(row["total_sales"])
-    ancillary_expense = -abs(round_won(Decimal(str(row["ancillary_sales"] or 0)) / Decimal("1.1")))
-    delivery_expense = -abs(round_won(Decimal(str(row["delivery_sales"] or 0)) / Decimal("1.1")))
+    ancillary_expense = -round_won(
+        Decimal(str(row["ancillary_sales"] or 0)) / Decimal("1.1")
+    )
+    delivery_expense = -round_won(
+        Decimal(str(row["delivery_sales"] or 0)) / Decimal("1.1")
+    )
     confirmed_advance = round_won(
         Decimal(str(row["confirmed_quantity"] or 0)) * PRODUCT_SUPPLY_PRICE
     )
@@ -1728,8 +1732,8 @@ def export_accounting(sales_month: int | None = None, platform: str = ""):
             debit, credit, payments = data["debit_rows"], data["credit_rows"], data["payment_rows"]
             raw = data["raw_totals"]
             source_sheet.append([
-                f"{month}월", item, debit[0]["amount"], debit[1]["amount"], -abs(raw["ancillary_sales"]),
-                debit[2]["amount"], -abs(raw["delivery_sales"]), debit[3]["amount"], debit[4]["amount"],
+                f"{month}월", item, debit[0]["amount"], debit[1]["amount"], -raw["ancillary_sales"],
+                debit[2]["amount"], -raw["delivery_sales"], debit[3]["amount"], debit[4]["amount"],
                 -raw["unspecified_sales"], credit[0]["amount"], round_won(credit[0]["amount"] / PRODUCT_SUPPLY_PRICE),
                 credit[1]["amount"], round_won(credit[1]["amount"] / PRODUCT_SUPPLY_PRICE),
                 credit[2]["amount"], round_won(credit[2]["amount"] / PRODUCT_SUPPLY_PRICE),

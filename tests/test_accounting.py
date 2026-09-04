@@ -42,6 +42,15 @@ def test_ancillary_and_delivery_are_negative_debits():
     assert result["difference"] == 0
 
 
+def test_negative_ancillary_and_delivery_become_positive_debits():
+    result = build_accounting_summary(accounting_row(
+        ancillary_sales=-74_000,
+        delivery_sales=-9_000,
+    ))
+    assert result["debit_rows"][1]["amount"] == 67_273
+    assert result["debit_rows"][2]["amount"] == 8_182
+
+
 def test_confirmed_product_posts_to_both_advance_and_product_sales():
     result = build_accounting_summary(accounting_row(confirmed_quantity=1))
     assert result["debit_rows"][3]["amount"] == 500_000
