@@ -3,8 +3,9 @@ name: UptimeRobot business hours
 on:
   schedule:
     # GitHub Actions cron uses UTC.
-    # Sunday-Thursday 23:00 UTC = Monday-Friday 08:00 KST.
-    - cron: "0 23 * * 0-4"
+    # Sunday-Thursday 22:40 UTC = Monday-Friday 07:40 KST.
+    # Start early so sleeping Render services are ready by 08:00 KST.
+    - cron: "40 22 * * 0-4"
     # Monday-Friday 09:00 UTC = Monday-Friday 18:00 KST.
     - cron: "0 9 * * 1-5"
   workflow_dispatch:
@@ -27,7 +28,7 @@ concurrency:
 jobs:
   update-monitors:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
 
     steps:
       - name: Select action
@@ -40,7 +41,7 @@ jobs:
         run: |
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             action="$MANUAL_ACTION"
-          elif [[ "$SCHEDULE" == "0 23 * * 0-4" ]]; then
+          elif [[ "$SCHEDULE" == "40 22 * * 0-4" ]]; then
             action="resume"
           else
             action="pause"
@@ -114,3 +115,76 @@ jobs:
 
           update_monitor "B2C Sales Management" "$B2C_MONITOR_ID"
           update_monitor "Logistics System" "$LOGISTICS_MONITOR_ID"
+
+      - name: Wake and verify both Render services
+        if: steps.selected.outputs.action == 'resume'
+        shell: bash
+        env:
+          API_KEY: ${{ secrets.UPTIMEROBOT_API_KEY }}
+          B2C_MONITOR_ID: ${{ secrets.UPTIMEROBOT_B2C_MONITOR_ID }}
+          LOGISTICS_MONITOR_ID: ${{ secrets.UPTIMEROBOT_LOGISTICS_MONITOR_ID }}
+        run: |
+          get_monitor_url() {
+            local monitor_id="$1"
+            local response
+            local url
+
+            response="$(curl --fail --silent --show-error \
+              --retry 5 \
+              --retry-all-errors \
+              --retry-delay 10 \
+              --request POST \
+              --data-urlencode "api_key=$API_KEY" \
+              --data-urlencode "monitors=$monitor_id" \
+              --data-urlencode "format=json" \
+              https://api.uptimerobot.com/v2/getMonitors)"
+
+            url="$(jq -r '.monitors[0].url // empty' <<< "$response")"
+            [[ -n "$url" ]] || {
+              echo "Could not retrieve the URL for monitor $monitor_id" >&2
+              return 1
+            }
+            printf '%s' "$url"
+          }
+
+          warm_service() {
+            local name="$1"
+            local url="$2"
+            local attempt
+            local http_code
+
+            for attempt in {1..12}; do
+              http_code="$(curl --location --silent --show-error \
+                --output /dev/null \
+                --connect-timeout 10 \
+                --max-time 20 \
+                --write-out '%{http_code}' \
+                "$url")" || true
+
+              if [[ "$http_code" =~ ^2[0-9][0-9]$ ]]; then
+                echo "$name is awake (HTTP $http_code) on attempt $attempt"
+                return 0
+              fi
+
+              echo "$name wake attempt $attempt returned HTTP $http_code"
+              if (( attempt < 12 )); then
+                sleep 30
+              fi
+            done
+
+            echo "$name did not wake after 12 attempts"
+            return 1
+          }
+
+          b2c_url="$(get_monitor_url "$B2C_MONITOR_ID")"
+          logistics_url="$(get_monitor_url "$LOGISTICS_MONITOR_ID")"
+
+          warm_service "B2C Sales Management" "$b2c_url" &
+          b2c_pid=$!
+          warm_service "Logistics System" "$logistics_url" &
+          logistics_pid=$!
+
+          failed=0
+          wait "$b2c_pid" || failed=1
+          wait "$logistics_pid" || failed=1
+          exit "$failed"
