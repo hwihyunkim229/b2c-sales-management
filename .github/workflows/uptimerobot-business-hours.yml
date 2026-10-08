@@ -3,11 +3,11 @@ name: UptimeRobot business hours
 on:
   schedule:
     # GitHub Actions cron uses UTC.
-    # Sunday-Thursday 22:40 UTC = Monday-Friday 07:40 KST.
-    # Start early so sleeping Render services are ready by 08:00 KST.
-    - cron: "40 22 * * 0-4"
-    # Monday-Friday 09:00 UTC = Monday-Friday 18:00 KST.
-    - cron: "0 9 * * 1-5"
+    # Redundant weekday wake attempts at 07:30, 07:50, and 08:10 KST.
+    - cron: "30,50 22 * * 0-4"
+    - cron: "10 23 * * 0-4"
+    # Redundant weekday pause attempts at 18:00 and 18:20 KST.
+    - cron: "0,20 9 * * 1-5"
   workflow_dispatch:
     inputs:
       action:
@@ -36,15 +36,23 @@ jobs:
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
-          SCHEDULE: ${{ github.event.schedule }}
           MANUAL_ACTION: ${{ inputs.action }}
         run: |
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             action="$MANUAL_ACTION"
-          elif [[ "$SCHEDULE" == "40 22 * * 0-4" ]]; then
-            action="resume"
           else
-            action="pause"
+            # Decide from the actual current time, not from the cron expression.
+            # This prevents a delayed evening job from pausing monitors the next morning.
+            weekday="$(TZ=Asia/Seoul date +%u)"
+            time_kst="$(TZ=Asia/Seoul date +%H%M)"
+            echo "Current KST: weekday=$weekday time=$time_kst"
+
+            if (( weekday >= 1 && weekday <= 5 )) && \
+               (( 10#$time_kst >= 730 && 10#$time_kst < 1800 )); then
+              action="resume"
+            else
+              action="pause"
+            fi
           fi
 
           if [[ "$action" == "resume" ]]; then
